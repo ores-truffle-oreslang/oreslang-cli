@@ -1,0 +1,11 @@
+[package]
+name = "oreslang-cli"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Canonical developer tooling and IDE CLI for Oreslang"
+repository = "https://github.com/ores-truffle-oreslang/oreslang-cli"
+
+[[bin]]
+name = "oreslang"
+path = "src/main.rs"
