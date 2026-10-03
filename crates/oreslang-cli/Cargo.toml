@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 oreslang-compiler-client = { path = "../oreslang-compiler-client" }
+oreslang-lsp = { path = "../oreslang-lsp" }
 oreslang-protocol = { path = "../oreslang-protocol" }
 serde.workspace = true
 serde_json.workspace = true
