@@ -51,6 +51,7 @@ JSON uses diagnostic protocol version 1:
 ```json
 {
   "version": 1,
+  "ok": false,
   "diagnostics": [
     {
       "path": "/path/to/app.ores",
@@ -66,7 +67,8 @@ JSON uses diagnostic protocol version 1:
 }
 ```
 
-Positions are one-based at the CLI protocol boundary.
+Positions are one-based at the CLI protocol boundary. See
+[`docs/IDE_PROTOCOL.md`](docs/IDE_PROTOCOL.md) for the editor contract.
 
 ### Doctor
 
@@ -77,6 +79,13 @@ oreslang doctor
 Shows the diagnostic protocol version and the compiler backend that will be
 used.
 
+### Version
+
+```bash
+oreslang version
+oreslang --version
+```
+
 ## Compiler backend discovery
 
 The current compiler authority lives in `oreslang-source.java`. Until a
@@ -85,15 +94,19 @@ delegates to that compiler's non-executing check entrypoint.
 
 Backend resolution is:
 
-1. `ORESLANG_COMPILER_JAR=/path/to/oreslang-source.jar` → `java -jar ...`;
-2. `ORESLANG_COMPILER=/path/to/compiler-launcher`;
-3. fallback internal launcher name `oreslang-compiler`.
+1. explicit `--compiler /path/to/backend`;
+2. `ORESLANG_COMPILER_JAR=/path/to/oreslang-source.jar` → `java -jar ...`;
+3. `ORESLANG_COMPILER=/path/to/compiler-launcher`;
+4. fallback internal launcher name `oreslang-compiler`.
 
-The CLI intentionally never falls back to a command named `ores`, so it cannot accidentally resolve to the unrelated `ORESoftware/ores-cli` on PATH. The compiler distribution should provide `oreslang-compiler` or set one of the explicit backend environment variables.
+The CLI intentionally never falls back to a command named `ores`, so it cannot
+accidentally resolve to the unrelated `ORESoftware/ores-cli` on PATH. The
+compiler distribution should provide `oreslang-compiler` or set one of the
+explicit backend environment variables.
 
 The public/editor command remains `oreslang check ...` in every case.
 
-For unusual local layouts, the CLI also supports:
+For unusual local layouts, the CLI also supports prefix arguments:
 
 ```bash
 oreslang check --compiler /path/to/backend --compiler-arg ARG app.ores
