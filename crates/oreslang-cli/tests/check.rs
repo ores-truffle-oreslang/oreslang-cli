@@ -12,10 +12,8 @@ fn temp_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    let path = std::env::temp_dir().join(format!(
-        "oreslang-cli-test-{}-{nonce}",
-        std::process::id()
-    ));
+    let path =
+        std::env::temp_dir().join(format!("oreslang-cli-test-{}-{nonce}", std::process::id()));
     fs::create_dir_all(&path).expect("create temp dir");
     path
 }
@@ -54,13 +52,13 @@ fn check_converts_backend_diagnostic_to_protocol_json() {
 
     let payload: Value = serde_json::from_slice(&output.stdout).expect("protocol json");
     assert_eq!(payload["version"], 1);
-    assert_eq!(payload["diagnostics"][0]["path"], source.to_string_lossy().as_ref());
+    assert_eq!(
+        payload["diagnostics"][0]["path"],
+        source.to_string_lossy().as_ref()
+    );
     assert_eq!(payload["diagnostics"][0]["range"]["start"]["line"], 3);
     assert_eq!(payload["diagnostics"][0]["range"]["start"]["column"], 5);
-    assert_eq!(
-        payload["diagnostics"][0]["message"],
-        "expected expression"
-    );
+    assert_eq!(payload["diagnostics"][0]["message"], "expected expression");
 
     fs::remove_dir_all(dir).ok();
 }
