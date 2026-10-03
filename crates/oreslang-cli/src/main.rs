@@ -21,6 +21,8 @@ struct Cli {
 enum Command {
     /// Parse, resolve, and type-check Oreslang without executing guest code.
     Check(CheckArgs),
+    /// Run the Oreslang language server.
+    Lsp(LspArgs),
     /// Show the compiler backend that the CLI will use.
     Doctor(DoctorArgs),
     /// Print the Oreslang CLI version.
@@ -60,6 +62,16 @@ struct CheckArgs {
 }
 
 #[derive(Debug, Args)]
+struct LspArgs {
+    /// Serve Language Server Protocol messages over stdin/stdout.
+    #[arg(long)]
+    stdio: bool,
+
+    #[command(flatten)]
+    backend: BackendArgs,
+}
+
+#[derive(Debug, Args)]
 struct DoctorArgs {
     #[command(flatten)]
     backend: BackendArgs,
@@ -74,6 +86,7 @@ struct JsonLineDiagnostic<'a> {
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Check(args) => check(args),
+        Command::Lsp(args) => lsp(args),
         Command::Doctor(args) => doctor(args),
         Command::Version => version(),
     }
@@ -128,6 +141,22 @@ fn check(args: CheckArgs) -> ExitCode {
     }
 }
 
+fn lsp(args: LspArgs) -> ExitCode {
+    if !args.stdio {
+        eprintln!("oreslang lsp currently requires --stdio");
+        return ExitCode::from(2);
+    }
+
+    match oreslang_lsp::run_stdio(compiler_command(&args.backend)) {
+        Ok(0) => ExitCode::SUCCESS,
+        Ok(code) => ExitCode::from(code.clamp(0, u8::MAX as i32) as u8),
+        Err(error) => {
+            eprintln!("oreslang lsp: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn version() -> ExitCode {
     println!("oreslang {}", env!("CARGO_PKG_VERSION"));
     ExitCode::SUCCESS
@@ -139,6 +168,7 @@ fn doctor(args: DoctorArgs) -> ExitCode {
     println!("diagnostic protocol: v{DIAGNOSTIC_PROTOCOL_VERSION}");
     println!("compiler backend: {}", command.display());
     println!("public editor command: oreslang check <file.ores>");
+    println!("language server: oreslang lsp --stdio");
     ExitCode::SUCCESS
 }
 
