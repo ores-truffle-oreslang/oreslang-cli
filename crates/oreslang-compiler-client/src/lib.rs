@@ -59,6 +59,8 @@ impl CompilerCommand {
 pub enum CompilerClientError {
     Spawn { command: String, source: io::Error },
     InvalidPath(PathBuf),
+    SupervisorClosed,
+    WorkerPanicked,
 }
 
 impl fmt::Display for CompilerClientError {
@@ -75,6 +77,10 @@ impl fmt::Display for CompilerClientError {
                 "Oreslang check target has no usable parent directory: {}",
                 path.display()
             ),
+            Self::SupervisorClosed => formatter.write_str("Oreslang compiler supervisor is closed"),
+            Self::WorkerPanicked => formatter.write_str(
+                "Oreslang compiler worker panicked while processing a check; the supervisor remains available"
+            ),
         }
     }
 }
@@ -83,7 +89,7 @@ impl std::error::Error for CompilerClientError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Spawn { source, .. } => Some(source),
-            Self::InvalidPath(_) => None,
+            Self::InvalidPath(_) | Self::SupervisorClosed | Self::WorkerPanicked => None,
         }
     }
 }
@@ -242,6 +248,9 @@ pub fn parse_compiler_output(output: &str, default_path: &Path) -> Vec<Diagnosti
 pub fn os_string(value: impl AsRef<OsStr>) -> OsString {
     value.as_ref().to_os_string()
 }
+
+mod supervisor;
+pub use supervisor::CompilerSupervisor;
 
 #[cfg(test)]
 mod tests {
