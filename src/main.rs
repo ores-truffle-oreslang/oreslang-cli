@@ -259,7 +259,9 @@ fn parse_backend_output(output: &str, default_file: &str) -> Vec<Diagnostic> {
 fn parse_standard_diagnostic(line: &str) -> Option<Diagnostic> {
     for severity in ["error", "warning", "info", "hint"] {
         let marker = format!(": {severity}:");
-        let marker_index = line.rfind(&marker)?;
+        let Some(marker_index) = line.rfind(&marker) else {
+            continue;
+        };
         let location = &line[..marker_index];
         let message = line[marker_index + marker.len()..].trim();
 
