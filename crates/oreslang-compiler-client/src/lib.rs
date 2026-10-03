@@ -57,10 +57,7 @@ impl CompilerCommand {
 
 #[derive(Debug)]
 pub enum CompilerClientError {
-    Spawn {
-        command: String,
-        source: io::Error,
-    },
+    Spawn { command: String, source: io::Error },
     InvalidPath(PathBuf),
 }
 
@@ -68,7 +65,10 @@ impl fmt::Display for CompilerClientError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Spawn { command, source } => {
-                write!(formatter, "failed to start Oreslang compiler backend '{command}': {source}")
+                write!(
+                    formatter,
+                    "failed to start Oreslang compiler backend '{command}': {source}"
+                )
             }
             Self::InvalidPath(path) => write!(
                 formatter,
@@ -123,10 +123,12 @@ impl CompilerClient {
             .arg(&absolute)
             .current_dir(cwd);
 
-        let output = command.output().map_err(|source| CompilerClientError::Spawn {
-            command: self.command.display(),
-            source,
-        })?;
+        let output = command
+            .output()
+            .map_err(|source| CompilerClientError::Spawn {
+                command: self.command.display(),
+                source,
+            })?;
 
         let raw_output = join_output(&output.stdout, &output.stderr);
         let mut diagnostics = parse_compiler_output(&raw_output, &absolute);
@@ -196,7 +198,11 @@ fn native_diagnostic_pattern() -> &'static Regex {
 pub fn parse_compiler_output(output: &str, default_path: &Path) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
-    for line in output.lines().map(str::trim).filter(|line| !line.is_empty()) {
+    for line in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
         if let Some(captures) = standard_diagnostic_pattern().captures(line) {
             let severity = match &captures["severity"] {
                 "warning" => DiagnosticSeverity::Warning,
