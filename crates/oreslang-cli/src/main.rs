@@ -23,6 +23,8 @@ enum Command {
     Check(CheckArgs),
     /// Show the compiler backend that the CLI will use.
     Doctor(DoctorArgs),
+    /// Print the Oreslang CLI version.
+    Version,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -73,6 +75,7 @@ fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Check(args) => check(args),
         Command::Doctor(args) => doctor(args),
+        Command::Version => version(),
     }
 }
 
@@ -123,6 +126,11 @@ fn check(args: CheckArgs) -> ExitCode {
     } else {
         ExitCode::SUCCESS
     }
+}
+
+fn version() -> ExitCode {
+    println!("oreslang {}", env!("CARGO_PKG_VERSION"));
+    ExitCode::SUCCESS
 }
 
 fn doctor(args: DoctorArgs) -> ExitCode {
