@@ -143,6 +143,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "oreslang-compiler-client",
+ "oreslang-lsp",
  "oreslang-protocol",
  "serde",
  "serde_json",
@@ -154,6 +155,16 @@ version = "0.1.0"
 dependencies = [
  "oreslang-protocol",
  "regex",
+]
+
+[[package]]
+name = "oreslang-lsp"
+version = "0.1.0"
+dependencies = [
+ "oreslang-compiler-client",
+ "oreslang-protocol",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
