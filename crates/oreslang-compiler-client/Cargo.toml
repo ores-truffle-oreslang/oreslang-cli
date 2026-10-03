@@ -1,0 +1,10 @@
+[package]
+name = "oreslang-compiler-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+oreslang-protocol = { path = "../oreslang-protocol" }
+regex.workspace = true
