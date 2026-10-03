@@ -87,10 +87,9 @@ Backend resolution is:
 
 1. `ORESLANG_COMPILER_JAR=/path/to/oreslang-source.jar` → `java -jar ...`;
 2. `ORESLANG_COMPILER=/path/to/compiler-launcher`;
-3. fallback internal launcher name `ores`.
+3. fallback internal launcher name `oreslang-compiler`.
 
-That fallback refers to the launcher built by the Oreslang compiler repository,
-**not** `ORESoftware/ores-cli`.
+The CLI intentionally never falls back to a command named `ores`, so it cannot accidentally resolve to the unrelated `ORESoftware/ores-cli` on PATH. The compiler distribution should provide `oreslang-compiler` or set one of the explicit backend environment variables.
 
 The public/editor command remains `oreslang check ...` in every case.
 
