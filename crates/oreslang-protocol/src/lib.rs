@@ -82,13 +82,18 @@ impl Diagnostic {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CheckReport {
     pub version: u32,
+    pub ok: bool,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 impl CheckReport {
     pub fn new(diagnostics: Vec<Diagnostic>) -> Self {
+        let ok = diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity != DiagnosticSeverity::Error);
         Self {
             version: DIAGNOSTIC_PROTOCOL_VERSION,
+            ok,
             diagnostics,
         }
     }
@@ -107,6 +112,7 @@ mod tests {
             "expected expression",
         )]);
 
+        assert!(!report.ok);
         let json = serde_json::to_string(&report).expect("serialize");
         let decoded: CheckReport = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(report, decoded);
