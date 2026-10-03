@@ -35,7 +35,7 @@ enum OutputFormat {
 #[derive(Debug, Args)]
 struct BackendArgs {
     /// Override the internal compiler backend executable.
-    #[arg(long, value_name = "PROGRAM", env = "ORESLANG_COMPILER")]
+    #[arg(long, value_name = "PROGRAM")]
     compiler: Option<OsString>,
 
     /// Prefix argument passed to the internal compiler backend before --check.
