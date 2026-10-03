@@ -2,6 +2,7 @@
 members = [
   "crates/oreslang-cli",
   "crates/oreslang-compiler-client",
+  "crates/oreslang-lsp",
   "crates/oreslang-protocol",
 ]
 resolver = "2"
