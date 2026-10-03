@@ -35,8 +35,8 @@ pub struct Position {
 impl Position {
     pub const fn new(line: u32, column: u32) -> Self {
         Self {
-            line: line.max(1),
-            column: column.max(1),
+            line: if line == 0 { 1 } else { line },
+            column: if column == 0 { 1 } else { column },
         }
     }
 }
