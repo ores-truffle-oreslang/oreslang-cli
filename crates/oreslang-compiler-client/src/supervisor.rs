@@ -64,7 +64,9 @@ impl CompilerSupervisor {
                             let fingerprint = FileFingerprint::read(&absolute);
 
                             if let Some(fingerprint) = fingerprint {
-                                if let Some((cached_fingerprint, cached_result)) = cache.get(&absolute) {
+                                if let Some((cached_fingerprint, cached_result)) =
+                                    cache.get(&absolute)
+                                {
                                     if *cached_fingerprint == fingerprint {
                                         let _ = response.send(Ok(cached_result.clone()));
                                         continue;
@@ -72,10 +74,11 @@ impl CompilerSupervisor {
                                 }
                             }
 
-                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                client.check_file(&absolute)
-                            }))
-                            .unwrap_or(Err(CompilerClientError::WorkerPanicked));
+                            let result =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    client.check_file(&absolute)
+                                }))
+                                .unwrap_or(Err(CompilerClientError::WorkerPanicked));
 
                             if let (Some(fingerprint), Ok(check_result)) = (fingerprint, &result) {
                                 cache.insert(absolute.clone(), (fingerprint, check_result.clone()));
