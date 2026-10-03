@@ -206,12 +206,7 @@ pub fn run_stdio(command: CompilerCommand) -> io::Result<i32> {
                                 .map(|document| !document.dirty)
                                 .unwrap_or(false);
                             if should_check {
-                                schedule_check(
-                                    &uri,
-                                    &mut documents,
-                                    &supervisor,
-                                    &events,
-                                );
+                                schedule_check(&uri, &mut documents, &supervisor, &events);
                             }
                         }
                     }
@@ -451,12 +446,7 @@ fn write_response<W: Write>(writer: &mut W, id: Value, result: Value) -> io::Res
     )
 }
 
-fn write_error<W: Write>(
-    writer: &mut W,
-    id: Value,
-    code: i32,
-    message: &str,
-) -> io::Result<()> {
+fn write_error<W: Write>(writer: &mut W, id: Value, code: i32, message: &str) -> io::Result<()> {
     write_message(
         writer,
         &json!({
@@ -467,11 +457,7 @@ fn write_error<W: Write>(
     )
 }
 
-fn write_notification<W: Write>(
-    writer: &mut W,
-    method: &str,
-    params: Value,
-) -> io::Result<()> {
+fn write_notification<W: Write>(writer: &mut W, method: &str, params: Value) -> io::Result<()> {
     write_message(
         writer,
         &json!({"jsonrpc": "2.0", "method": method, "params": params}),
@@ -484,9 +470,7 @@ fn uri_to_path(uri: &str) -> Option<PathBuf> {
     let decoded = percent_decode(raw)?;
 
     #[cfg(windows)]
-    let decoded = if decoded.starts_with('/')
-        && decoded.as_bytes().get(2).copied() == Some(b':')
-    {
+    let decoded = if decoded.starts_with('/') && decoded.as_bytes().get(2).copied() == Some(b':') {
         decoded[1..].to_owned()
     } else {
         decoded
@@ -536,8 +520,7 @@ fn percent_decode(value: &str) -> Option<String> {
 fn percent_encode(value: &str) -> String {
     let mut encoded = String::with_capacity(value.len());
     for byte in value.as_bytes() {
-        if byte.is_ascii_alphanumeric()
-            || matches!(*byte, b'/' | b':' | b'-' | b'.' | b'_' | b'~')
+        if byte.is_ascii_alphanumeric() || matches!(*byte, b'/' | b':' | b'-' | b'.' | b'_' | b'~')
         {
             encoded.push(*byte as char);
         } else {
