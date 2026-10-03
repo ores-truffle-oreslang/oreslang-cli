@@ -74,3 +74,22 @@ Discovery order:
 3. `oreslang-compiler` on `PATH`.
 
 There is deliberately no `ores` fallback.
+
+
+## Language Server Protocol
+
+Editors should prefer a persistent session when supported:
+
+```sh
+oreslang lsp --stdio
+```
+
+The server uses standard LSP/JSON-RPC framing and push diagnostics through
+`textDocument/publishDiagnostics`. Compiler diagnostic positions remain
+one-based inside the Oreslang diagnostic protocol and are converted to
+zero-based UTF-16 LSP positions at the server boundary.
+
+The initial server supports lifecycle requests, full text synchronization,
+open/change/save/close notifications, saved-file compiler diagnostics, and
+external file change detection. Unsaved document text remains cached in memory
+until the compiler exposes a first-class overlay API.
