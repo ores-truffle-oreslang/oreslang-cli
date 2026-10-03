@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-const DEFAULT_COMPILER_PROGRAM: &str = "ores";
+const DEFAULT_COMPILER_PROGRAM: &str = "oreslang-compiler";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompilerCommand {
@@ -277,5 +277,11 @@ mod tests {
     #[test]
     fn ignores_unrelated_output() {
         assert!(parse_compiler_output("compiler cache warm", Path::new("x.ores")).is_empty());
+    }
+
+    #[test]
+    fn default_backend_never_names_unrelated_ores_cli() {
+        assert_eq!(DEFAULT_COMPILER_PROGRAM, "oreslang-compiler");
+        assert_ne!(DEFAULT_COMPILER_PROGRAM, "ores");
     }
 }
