@@ -21,7 +21,7 @@ pub fn read_message<R: BufRead>(reader: &mut R) -> io::Result<Option<Value>> {
         }
 
         saw_header = true;
-        let trimmed = line.trim_end_matches(['\r', '\n']);
+        let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
         if trimmed.is_empty() {
             break;
         }
@@ -83,8 +83,7 @@ mod tests {
     #[test]
     fn writes_lsp_frame() {
         let mut out = Vec::new();
-        write_message(&mut out, &json!({"jsonrpc":"2.0","id":1,"result":null}))
-            .expect("write");
+        write_message(&mut out, &json!({"jsonrpc":"2.0","id":1,"result":null})).expect("write");
         let text = String::from_utf8(out).expect("utf8");
         assert!(text.starts_with("Content-Length: "));
         assert!(text.contains("\r\n\r\n{\"id\":1,\"jsonrpc\":\"2.0\",\"result\":null}"));
