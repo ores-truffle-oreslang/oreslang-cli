@@ -21,6 +21,8 @@ struct Cli {
 enum Command {
     /// Parse, resolve, and type-check Oreslang without executing guest code.
     Check(CheckArgs),
+    /// Execute an Oreslang program with explicit host-I/O permissions.
+    Run(RunArgs),
     /// Run the Oreslang language server.
     Lsp(LspArgs),
     /// Show the compiler backend that the CLI will use.
@@ -325,6 +327,19 @@ struct CheckArgs {
 }
 
 #[derive(Debug, Args)]
+struct RunArgs {
+    /// Oreslang source file to execute.
+    #[arg(required = true, value_name = "FILE")]
+    file: PathBuf,
+
+    #[command(flatten)]
+    permissions: PermissionArgs,
+
+    #[command(flatten)]
+    backend: BackendArgs,
+}
+
+#[derive(Debug, Args)]
 struct LspArgs {
     /// Serve Language Server Protocol messages over stdin/stdout.
     #[arg(long)]
@@ -352,6 +367,7 @@ struct JsonLineDiagnostic<'a> {
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Check(args) => check(args),
+        Command::Run(args) => run(args),
         Command::Lsp(args) => lsp(args),
         Command::Doctor(args) => doctor(args),
         Command::Version => version(),
@@ -417,6 +433,26 @@ fn check(args: CheckArgs) -> ExitCode {
     }
 }
 
+fn run(args: RunArgs) -> ExitCode {
+    let command = permissioned_compiler_command(&args.backend, &args.permissions);
+    let status = std::process::Command::new(&command.program)
+        .args(&command.prefix_args)
+        .arg(&args.file)
+        .status();
+
+    match status {
+        Ok(status) if status.success() => ExitCode::SUCCESS,
+        Ok(status) => ExitCode::from(status.code().unwrap_or(1).clamp(1, u8::MAX as i32) as u8),
+        Err(error) => {
+            eprintln!(
+                "oreslang run: failed to start compiler/runtime backend '{}': {error}",
+                command.display()
+            );
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn lsp(args: LspArgs) -> ExitCode {
     if !args.stdio {
         eprintln!("oreslang lsp currently requires --stdio");
@@ -445,6 +481,7 @@ fn doctor(args: DoctorArgs) -> ExitCode {
     println!("diagnostic protocol: v{DIAGNOSTIC_PROTOCOL_VERSION}");
     println!("compiler backend: {}", command.display());
     println!("public editor command: oreslang check <file.ores>");
+    println!("runtime command: oreslang run <file.ores>");
     println!("language server: oreslang lsp --stdio");
     println!("permissions: Deno-style --allow-*/--deny-*; runtime enforcement is always active");
     ExitCode::SUCCESS
@@ -529,6 +566,23 @@ mod tests {
         };
         assert_eq!(args.permissions.allow_read.as_deref(), Some("*"));
         assert_eq!(args.files, vec![PathBuf::from("demo.ores")]);
+    }
+
+    #[test]
+    fn run_accepts_bare_permission_without_swallowing_source() {
+        let cli = Cli::try_parse_from([
+            "oreslang",
+            "run",
+            "--allow-net",
+            "demo.ores",
+        ])
+        .expect("run permission CLI should parse");
+
+        let Command::Run(args) = cli.command else {
+            panic!("expected run command");
+        };
+        assert_eq!(args.permissions.allow_net.as_deref(), Some("*"));
+        assert_eq!(args.file, PathBuf::from("demo.ores"));
     }
 
     #[test]
