@@ -1,0 +1,131 @@
+[identity]
+service = "oreslang"
+type_name = "OreslangCliEnv"
+
+[parse]
+# Scope values must use '='. A bare permission option means "*", and must
+# never consume a following source filename.
+require_equals = true
+allow_unknown = true
+
+[env]
+# Permission CLI configuration must not implicitly read project .env files.
+load = false
+
+[flags.permission_check]
+env = "ORESLANG_PERMISSION_CHECK"
+aliases = ["permission-check"]
+type = "string"
+default = "runtime"
+help = "Permission admission mode: runtime or compile."
+
+[flags.allow_all]
+env = "ORESLANG_ALLOW_ALL"
+aliases = ["allow-all"]
+type = "bool"
+help = "Allow every Ores-owned privileged I/O category."
+
+[flags.allow_read]
+env = "ORESLANG_ALLOW_READ"
+aliases = ["allow-read"]
+type = "string"
+bare_value = "*"
+help = "Allow filesystem reads; bare means all, =PATHS narrows roots."
+
+[flags.deny_read]
+env = "ORESLANG_DENY_READ"
+aliases = ["deny-read"]
+type = "string"
+bare_value = "*"
+help = "Deny filesystem reads; explicit denies override allows."
+
+[flags.allow_write]
+env = "ORESLANG_ALLOW_WRITE"
+aliases = ["allow-write"]
+type = "string"
+bare_value = "*"
+
+[flags.deny_write]
+env = "ORESLANG_DENY_WRITE"
+aliases = ["deny-write"]
+type = "string"
+bare_value = "*"
+
+[flags.allow_net]
+env = "ORESLANG_ALLOW_NET"
+aliases = ["allow-net"]
+type = "string"
+bare_value = "*"
+help = "Allow network endpoints; use =HOST[:PORT],... to narrow."
+
+[flags.deny_net]
+env = "ORESLANG_DENY_NET"
+aliases = ["deny-net"]
+type = "string"
+bare_value = "*"
+
+[flags.allow_env]
+env = "ORESLANG_ALLOW_ENV"
+aliases = ["allow-env"]
+type = "string"
+bare_value = "*"
+
+[flags.deny_env]
+env = "ORESLANG_DENY_ENV"
+aliases = ["deny-env"]
+type = "string"
+bare_value = "*"
+
+[flags.allow_run]
+env = "ORESLANG_ALLOW_RUN"
+aliases = ["allow-run"]
+type = "string"
+bare_value = "*"
+
+[flags.deny_run]
+env = "ORESLANG_DENY_RUN"
+aliases = ["deny-run"]
+type = "string"
+bare_value = "*"
+
+[flags.allow_sys]
+env = "ORESLANG_ALLOW_SYS"
+aliases = ["allow-sys"]
+type = "string"
+bare_value = "*"
+
+[flags.deny_sys]
+env = "ORESLANG_DENY_SYS"
+aliases = ["deny-sys"]
+type = "string"
+bare_value = "*"
+
+[flags.allow_ffi]
+env = "ORESLANG_ALLOW_FFI"
+aliases = ["allow-ffi"]
+type = "string"
+bare_value = "*"
+
+[flags.deny_ffi]
+env = "ORESLANG_DENY_FFI"
+aliases = ["deny-ffi"]
+type = "string"
+bare_value = "*"
+
+[flags.allow_import]
+env = "ORESLANG_ALLOW_IMPORT"
+aliases = ["allow-import"]
+type = "string"
+bare_value = "*"
+
+[flags.deny_import]
+env = "ORESLANG_DENY_IMPORT"
+aliases = ["deny-import"]
+type = "string"
+bare_value = "*"
+
+[flags.no_prompt]
+env = "ORESLANG_NO_PROMPT"
+aliases = ["no-prompt"]
+type = "bool"
+help = "Never prompt for permission; Oreslang currently always fails closed."
