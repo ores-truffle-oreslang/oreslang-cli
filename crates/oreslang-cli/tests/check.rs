@@ -87,3 +87,44 @@ fn check_succeeds_when_backend_reports_no_diagnostics() {
 
     fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn check_preserves_nonfatal_select_return_warning_in_json() {
+    let dir = temp_dir();
+    let source = dir.join("select.ores");
+    fs::write(&source, "pub routine main() -> void { return; }\n").expect("source");
+
+    // The unmerged compiler #408 emits a nonfatal W-SELECT-RETURN warning.
+    // Mock the backend wire format without assuming the new syntax is on main.
+    let compiler = fake_compiler(
+        &dir,
+        "for source in \"$@\"; do :; done\nprintf '%s:4:7: warning: W-SELECT-RETURN discarded do-select return\\n' \"$source\"\nexit 0",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_oreslang"))
+        .arg("check")
+        .arg("--format=json")
+        .arg("--compiler")
+        .arg(&compiler)
+        .arg(&source)
+        .output()
+        .expect("run oreslang");
+
+    assert!(
+        output.status.success(),
+        "warning-only compiler output must not fail: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("protocol json");
+    assert_eq!(payload["ok"], true);
+    assert_eq!(payload["diagnostics"][0]["severity"], "warning");
+    assert_eq!(
+        payload["diagnostics"][0]["path"],
+        source.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        payload["diagnostics"][0]["message"],
+        "W-SELECT-RETURN discarded do-select return"
+    );
+    fs::remove_dir_all(dir).ok();
+}
