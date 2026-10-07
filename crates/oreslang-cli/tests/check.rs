@@ -35,7 +35,7 @@ fn check_converts_backend_diagnostic_to_protocol_json() {
 
     let compiler = fake_compiler(
         &dir,
-        "printf '%s:3:5: error: expected expression\\n' \"$2\"\nexit 1",
+        "for source in \"$@\"; do :; done\nprintf '%s:3:5: error: expected expression\\n' \"$source\"\nexit 1",
     );
 
     let output = Command::new(env!("CARGO_BIN_EXE_oreslang"))
