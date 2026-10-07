@@ -553,13 +553,8 @@ mod tests {
 
     #[test]
     fn bare_scope_does_not_consume_source_file() {
-        let cli = Cli::try_parse_from([
-            "oreslang",
-            "check",
-            "--allow-read",
-            "demo.ores",
-        ])
-        .expect("permission CLI should parse");
+        let cli = Cli::try_parse_from(["oreslang", "check", "--allow-read", "demo.ores"])
+            .expect("permission CLI should parse");
 
         let Command::Check(args) = cli.command else {
             panic!("expected check command");
@@ -570,13 +565,8 @@ mod tests {
 
     #[test]
     fn run_accepts_bare_permission_without_swallowing_source() {
-        let cli = Cli::try_parse_from([
-            "oreslang",
-            "run",
-            "--allow-net",
-            "demo.ores",
-        ])
-        .expect("run permission CLI should parse");
+        let cli = Cli::try_parse_from(["oreslang", "run", "--allow-net", "demo.ores"])
+            .expect("run permission CLI should parse");
 
         let Command::Run(args) = cli.command else {
             panic!("expected run command");
