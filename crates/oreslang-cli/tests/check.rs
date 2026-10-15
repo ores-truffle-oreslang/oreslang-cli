@@ -237,13 +237,14 @@ fn compiler_arg_cannot_smuggle_permission_or_isolate_authority() {
             "compiler option unexpectedly admitted: {unsafe_option}"
         );
         assert!(
-            String::from_utf8_lossy(&output.stderr)
-                .contains("permission and isolate policy flags"),
+            String::from_utf8_lossy(&output.stderr).contains("permission and isolate policy flags"),
             "rejection message missing for {unsafe_option}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert!(output.stdout.is_empty(),
-            "backend unexpectedly executed for {unsafe_option}");
+        assert!(
+            output.stdout.is_empty(),
+            "backend unexpectedly executed for {unsafe_option}"
+        );
     }
 
     // The same parser applies to check and lsp, not only the run path.
@@ -289,7 +290,10 @@ fn ordinary_compiler_args_still_reach_backend_without_new_permissions() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("ARG:--diagnostics=json"), "{stdout}");
-    assert!(stdout.contains("ARG:--permission-check=runtime"), "{stdout}");
+    assert!(
+        stdout.contains("ARG:--permission-check=runtime"),
+        "{stdout}"
+    );
     assert!(!stdout.contains("ARG:--allow-all"), "{stdout}");
     fs::remove_dir_all(dir).ok();
 }
