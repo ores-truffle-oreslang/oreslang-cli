@@ -128,3 +128,23 @@ fn check_preserves_nonfatal_select_return_warning_in_json() {
     );
     fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn run_and_check_require_strict_io_even_with_explicit_backend() {
+    let dir = temp_dir();
+    let source = dir.join("pure.ores");
+    fs::write(&source, "pub fnc main():int{return 42;}").unwrap();
+    let compiler = fake_compiler(&dir,
+        "found=0; for arg in \"$@\"; do if [ \"$arg\" = --core-io=native-async-only ]; then found=$((found+1)); fi; done; test \"$found\" -eq 1");
+    for mode in ["run", "check"] {
+        let result = Command::new(env!("CARGO_BIN_EXE_oreslang"))
+            .arg(mode)
+            .arg("--compiler")
+            .arg(&compiler)
+            .arg(&source)
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "{mode}: {:?}", result);
+    }
+    fs::remove_dir_all(dir).ok();
+}

@@ -125,6 +125,7 @@ impl CompilerClient {
         let mut command = Command::new(&self.command.program);
         command
             .args(&self.command.prefix_args)
+            .arg("--core-io=native-async-only")
             .arg("--check")
             .arg(&absolute)
             .current_dir(cwd);
@@ -292,5 +293,18 @@ mod tests {
     fn default_backend_never_names_unrelated_ores_cli() {
         assert_eq!(DEFAULT_COMPILER_PROGRAM, "oreslang-compiler");
         assert_ne!(DEFAULT_COMPILER_PROGRAM, "ores");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn check_and_lsp_clients_require_native_async_policy() {
+        let command = CompilerCommand::from_program("/bin/sh").with_prefix_args([
+            OsString::from("-c"),
+            OsString::from("test \"$1\" = --core-io=native-async-only && test \"$2\" = --check"),
+            OsString::from("compiler-argument-contract"),
+        ]);
+        let result = CompilerClient::new(command)
+            .check_file(Path::new("Cargo.toml"))
+            .unwrap();
+        assert!(result.success, "{}", result.raw_output);
     }
 }

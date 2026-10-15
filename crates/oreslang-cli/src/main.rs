@@ -449,6 +449,7 @@ fn run(args: RunArgs) -> ExitCode {
     let command = permissioned_compiler_command(&args.backend, &args.permissions);
     let status = std::process::Command::new(&command.program)
         .args(&command.prefix_args)
+        .arg("--core-io=native-async-only")
         .arg(&args.file)
         .status();
 
