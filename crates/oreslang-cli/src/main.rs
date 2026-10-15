@@ -66,20 +66,18 @@ struct PermissionArgs {
     /// Choose runtime-only or compile-time-plus-runtime permission admission.
     #[arg(
         long,
-        env = "ORESLANG_PERMISSION_CHECK",
         value_enum,
         default_value_t = PermissionCheck::Runtime
     )]
     permission_check: PermissionCheck,
 
     /// Allow every Ores-owned privileged I/O category.
-    #[arg(long, env = "ORESLANG_ALLOW_ALL")]
+    #[arg(long)]
     allow_all: bool,
 
     /// Allow filesystem reads; bare means all, =PATHS narrows to comma-separated roots.
     #[arg(
         long,
-        env = "ORESLANG_ALLOW_READ",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -90,7 +88,6 @@ struct PermissionArgs {
     /// Deny filesystem reads; explicit denies override allows.
     #[arg(
         long,
-        env = "ORESLANG_DENY_READ",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -101,7 +98,6 @@ struct PermissionArgs {
     /// Allow filesystem writes.
     #[arg(
         long,
-        env = "ORESLANG_ALLOW_WRITE",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -112,7 +108,6 @@ struct PermissionArgs {
     /// Deny filesystem writes.
     #[arg(
         long,
-        env = "ORESLANG_DENY_WRITE",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -123,7 +118,6 @@ struct PermissionArgs {
     /// Allow network endpoints; bare means all, =HOST[:PORT],... narrows the scope.
     #[arg(
         long,
-        env = "ORESLANG_ALLOW_NET",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -134,7 +128,6 @@ struct PermissionArgs {
     /// Deny network endpoints.
     #[arg(
         long,
-        env = "ORESLANG_DENY_NET",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -145,7 +138,6 @@ struct PermissionArgs {
     /// Allow environment-variable names.
     #[arg(
         long,
-        env = "ORESLANG_ALLOW_ENV",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -156,7 +148,6 @@ struct PermissionArgs {
     /// Deny environment-variable names.
     #[arg(
         long,
-        env = "ORESLANG_DENY_ENV",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -167,7 +158,6 @@ struct PermissionArgs {
     /// Allow child-process commands.
     #[arg(
         long,
-        env = "ORESLANG_ALLOW_RUN",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -178,7 +168,6 @@ struct PermissionArgs {
     /// Deny child-process commands.
     #[arg(
         long,
-        env = "ORESLANG_DENY_RUN",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -189,7 +178,6 @@ struct PermissionArgs {
     /// Allow system/process information keys.
     #[arg(
         long,
-        env = "ORESLANG_ALLOW_SYS",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -200,7 +188,6 @@ struct PermissionArgs {
     /// Deny system/process information keys.
     #[arg(
         long,
-        env = "ORESLANG_DENY_SYS",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -211,7 +198,6 @@ struct PermissionArgs {
     /// Allow native FFI library roots.
     #[arg(
         long,
-        env = "ORESLANG_ALLOW_FFI",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -222,7 +208,6 @@ struct PermissionArgs {
     /// Deny native FFI library roots.
     #[arg(
         long,
-        env = "ORESLANG_DENY_FFI",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -233,7 +218,6 @@ struct PermissionArgs {
     /// Allow runtime/hot-code import roots.
     #[arg(
         long,
-        env = "ORESLANG_ALLOW_IMPORT",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -244,7 +228,6 @@ struct PermissionArgs {
     /// Deny runtime/hot-code import roots.
     #[arg(
         long,
-        env = "ORESLANG_DENY_IMPORT",
         num_args = 0..=1,
         default_missing_value = "*",
         require_equals = true,
@@ -253,7 +236,7 @@ struct PermissionArgs {
     deny_import: Option<String>,
 
     /// State explicitly that permission failures must never prompt.
-    #[arg(long, env = "ORESLANG_NO_PROMPT")]
+    #[arg(long)]
     no_prompt: bool,
 }
 
@@ -575,6 +558,39 @@ fn emit(diagnostics: &[Diagnostic], format: OutputFormat) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permission_flags_never_take_grants_from_ambient_environment() {
+        use clap::CommandFactory;
+
+        // Examine Clap's parsed metadata rather than changing process env.
+        // This is concurrency-safe when Rust tests run in parallel and
+        // prevents accidental reintroduction of #[arg(env = ...)] grants.
+        let cli = Cli::command();
+        let mut checked = 0;
+        for subcommand in cli.get_subcommands() {
+            if !["check", "run", "lsp"].contains(&subcommand.get_name()) {
+                continue;
+            }
+            for argument in subcommand.get_arguments() {
+                let name = argument.get_id().to_string();
+                let is_permission = name == "allow_all"
+                    || name == "no_prompt"
+                    || name == "permission_check"
+                    || name.starts_with("allow_")
+                    || name.starts_with("deny_");
+                if is_permission {
+                    assert!(
+                        argument.get_env().is_none(),
+                        "permission option {name} on {} must require explicit argv",
+                        subcommand.get_name()
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 3 * 19, "all permission flags must be audited");
+    }
 
     #[test]
     fn explicit_compiler_override_wins() {
