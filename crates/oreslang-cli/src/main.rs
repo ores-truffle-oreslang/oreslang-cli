@@ -290,8 +290,36 @@ struct BackendArgs {
     compiler: Option<OsString>,
 
     /// Prefix argument passed to the internal compiler backend before --check.
-    #[arg(long = "compiler-arg", value_name = "ARG", action = clap::ArgAction::Append)]
+    #[arg(
+        long = "compiler-arg",
+        value_name = "ARG",
+        action = clap::ArgAction::Append,
+        value_parser = validate_compiler_arg
+    )]
     compiler_args: Vec<OsString>,
+}
+
+/// Never let raw backend arguments become an alternate permission-grant
+/// channel. All host I/O authority must come from PermissionArgs. This is an
+/// argument provenance guard, not a sandbox for arbitrary backend executables.
+fn validate_compiler_arg(raw: &str) -> Result<OsString, String> {
+    let forbidden = raw == "--"
+        || raw.starts_with('@')
+        || raw == "--allow"
+        || raw.starts_with("--allow-")
+        || raw.starts_with("--allow=")
+        || raw == "--deny"
+        || raw.starts_with("--deny-")
+        || raw.starts_with("--deny=")
+        || raw == "--permission-check"
+        || raw.starts_with("--permission-check=")
+        || raw == "--no-prompt"
+        || raw.starts_with("--no-prompt=")
+        || raw.starts_with("--ores-");
+    if forbidden {
+        return Err("permission and isolate policy flags must use first-class CLI options, not --compiler-arg".into());
+    }
+    Ok(OsString::from(raw))
 }
 
 #[derive(Debug, Args)]
