@@ -148,13 +148,22 @@ fn ambient_permission_variables_cannot_grant_run_authority() {
         .env("ORESLANG_PERMISSION_CHECK", "compile")
         .output()
         .expect("run oreslang");
-    assert!(output.status.success(),
-        "CLI failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("ARG:--permission-check=runtime"), "{stdout}");
+    assert!(
+        stdout.contains("ARG:--permission-check=runtime"),
+        "{stdout}"
+    );
     assert!(!stdout.contains("ARG:--allow-"), "{stdout}");
     assert!(!stdout.contains("ARG:--allow-all"), "{stdout}");
-    assert!(!stdout.contains("ARG:--permission-check=compile"), "{stdout}");
+    assert!(
+        !stdout.contains("ARG:--permission-check=compile"),
+        "{stdout}"
+    );
     fs::remove_dir_all(dir).ok();
 }
 
@@ -177,13 +186,21 @@ fn explicit_permission_arguments_survive_ambient_grant_attempts() {
         .env("ORESLANG_DENY_NET", "")
         .output()
         .expect("run oreslang");
-    assert!(output.status.success(),
-        "CLI failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("ARG:--allow-net=api.example.com:443"), "{stdout}");
-    assert!(stdout.contains("ARG:--deny-net=blocked.example.com:443"), "{stdout}");
+    assert!(
+        stdout.contains("ARG:--allow-net=api.example.com:443"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("ARG:--deny-net=blocked.example.com:443"),
+        "{stdout}"
+    );
     assert!(!stdout.contains("ARG:--allow-net=*"), "{stdout}");
     assert!(!stdout.contains("ARG:--allow-all"), "{stdout}");
     fs::remove_dir_all(dir).ok();
 }
-
