@@ -204,3 +204,92 @@ fn explicit_permission_arguments_survive_ambient_grant_attempts() {
     assert!(!stdout.contains("ARG:--allow-all"), "{stdout}");
     fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn compiler_arg_cannot_smuggle_permission_or_isolate_authority() {
+    let dir = temp_dir();
+    let source = dir.join("compiler-arg-policy.ores");
+    fs::write(&source, "pub fnc main() => void { return; }\n").expect("source");
+    let compiler = fake_compiler(&dir, "printf 'unexpected backend launch\\n'");
+
+    for unsafe_option in [
+        "--allow-all",
+        "--allow-net=*",
+        "--deny-env=PATH",
+        "--permission-check=compile",
+        "--no-prompt",
+        "--ores-permission-explicit=true",
+        "--ores-capabilities=NETWORK",
+        "--",
+        "@/tmp/backend-argfile",
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_oreslang"))
+            .arg("run")
+            .arg(&source)
+            .arg("--compiler")
+            .arg(&compiler)
+            .arg(format!("--compiler-arg={unsafe_option}"))
+            .output()
+            .expect("run oreslang");
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "compiler option unexpectedly admitted: {unsafe_option}"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("permission and isolate policy flags"),
+            "rejection message missing for {unsafe_option}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stdout.is_empty(),
+            "backend unexpectedly executed for {unsafe_option}");
+    }
+
+    // The same parser applies to check and lsp, not only the run path.
+    for subcommand in ["check", "lsp"] {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_oreslang"));
+        cmd.arg(subcommand);
+        if subcommand == "lsp" {
+            cmd.arg("--stdio");
+        } else {
+            cmd.arg(&source);
+        }
+        let output = cmd
+            .arg("--compiler")
+            .arg(&compiler)
+            .arg("--compiler-arg=--allow-all")
+            .output()
+            .expect("run oreslang");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+    }
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn ordinary_compiler_args_still_reach_backend_without_new_permissions() {
+    let dir = temp_dir();
+    let source = dir.join("compiler-arg-safe.ores");
+    fs::write(&source, "pub fnc main() => void { return; }\n").expect("source");
+    let compiler = fake_compiler(&dir, "printf 'ARG:%s\\n' \"$@\"");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_oreslang"))
+        .arg("run")
+        .arg(&source)
+        .arg("--compiler")
+        .arg(&compiler)
+        .arg("--compiler-arg=--diagnostics=json")
+        .output()
+        .expect("run oreslang");
+    assert!(
+        output.status.success(),
+        "backend invocation rejected: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ARG:--diagnostics=json"), "{stdout}");
+    assert!(stdout.contains("ARG:--permission-check=runtime"), "{stdout}");
+    assert!(!stdout.contains("ARG:--allow-all"), "{stdout}");
+    fs::remove_dir_all(dir).ok();
+}
