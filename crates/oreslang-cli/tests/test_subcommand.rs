@@ -44,21 +44,23 @@ fn test_subcommand_forwards_all_flags_and_propagates_runner_exit() {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
-    let script = std::env::temp_dir().join(format!(
-        "oreslang-test-dispatch-{}.sh",
-        std::process::id()
-    ));
+    let script =
+        std::env::temp_dir().join(format!("oreslang-test-dispatch-{}.sh", std::process::id()));
     fs::write(&script, "#!/bin/sh\nprintf 'ARG:%s\\n' \"$@\"\nexit 7\n")
         .expect("create fixture runner");
-    let mut permissions = fs::metadata(&script)
-        .expect("fixture exists")
-        .permissions();
+    let mut permissions = fs::metadata(&script).expect("fixture exists").permissions();
     permissions.set_mode(0o700);
     fs::set_permissions(&script, permissions).expect("mark runner executable");
 
     let output = Command::new(env!("CARGO_BIN_EXE_oreslang"))
         .args([
-            "test", "--race", "fixture.ores", "--runs", "3", "--seed", "42",
+            "test",
+            "--race",
+            "fixture.ores",
+            "--runs",
+            "3",
+            "--seed",
+            "42",
         ])
         .env("ORESLANG_TEST_CLI", &script)
         .output()
