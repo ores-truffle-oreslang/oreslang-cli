@@ -162,3 +162,28 @@ remain in `oreslang-source.java`.
 ## Compiler PR checkpoint (2026-10-06)
 
 A [repository-specific compiler compatibility matrix](docs/compiler-pr-sync.md) tracks the 10 newest `oreslang-source.java` PRs. They remain unmerged upstream; existing demos, build flags, and stable compiler references stay unchanged pending exact-SHA conformance testing.
+
+
+## Race and fuzz testing (staged integration)
+
+The `oreslang test` subcommand delegates to a separately installed
+`oreslang-test` executable maintained in the private
+`ores-truffle-oreslang/oreslang-test.cli` repository.
+The dispatcher does not implement instrumentation or invent test results.
+
+```sh
+oreslang test --race suite.ores --runs 20 --seed 123
+oreslang test --fuzz suite.ores --runs 1000 --seed 123 --corpus testdata/fuzz
+```
+
+Install `oreslang-test-cli` alongside the Rust CLI and set
+`ORESLANG_TEST_CLI=/path/to/oreslang-test` if it is not on PATH. When the
+wrapper runs, it supplies `ORESLANG_TEST_RUNNER` as the current oreslang
+executable; `--runner` on the test command can override that. Runner
+exit codes are propagated intact.
+
+`--race` **fails inconclusive** unless the backend supplies real,
+versioned memory and logical-race observations. `--fuzz` is currently
+replayable black-box fuzzing only, without coverage feedback. Both modes
+consume the native `ORES_TEST|SUMMARY` protocol, and neither replaces
+`stdlib/testing.ores`.

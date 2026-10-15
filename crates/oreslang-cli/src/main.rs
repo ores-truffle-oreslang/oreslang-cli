@@ -23,6 +23,8 @@ enum Command {
     Check(CheckArgs),
     /// Execute an Oreslang program with explicit host-I/O permissions.
     Run(RunArgs),
+    /// Execute native Oreslang test suites with race or fuzz orchestration.
+    Test(TestArgs),
     /// Run the Oreslang language server.
     Lsp(LspArgs),
     /// Show the compiler backend that the CLI will use.
@@ -339,6 +341,15 @@ struct RunArgs {
     backend: BackendArgs,
 }
 
+/// Forward the test CLI's versioned options without duplicating its parser.
+/// Installation of oreslang-test is explicit and kept separate from the
+/// main compiler and runtime distribution.
+#[derive(Debug, Args)]
+struct TestArgs {
+    #[arg(required = true, num_args = 1.., trailing_var_arg = true, allow_hyphen_values = true)]
+    args: Vec<OsString>,
+}
+
 #[derive(Debug, Args)]
 struct LspArgs {
     /// Serve Language Server Protocol messages over stdin/stdout.
@@ -368,6 +379,7 @@ fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Check(args) => check(args),
         Command::Run(args) => run(args),
+        Command::Test(args) => test(args),
         Command::Lsp(args) => lsp(args),
         Command::Doctor(args) => doctor(args),
         Command::Version => version(),
@@ -449,6 +461,31 @@ fn run(args: RunArgs) -> ExitCode {
                 command.display()
             );
             ExitCode::FAILURE
+        }
+    }
+}
+
+fn test(args: TestArgs) -> ExitCode {
+    let executable =
+        std::env::var_os("ORESLANG_TEST_CLI").unwrap_or_else(|| OsString::from("oreslang-test"));
+    let mut command = std::process::Command::new(&executable);
+    command.args(&args.args);
+    // Default guest runner resolves to *this* oreslang binary so local
+    // development works without installing a second oreslang on PATH.
+    if std::env::var_os("ORESLANG_TEST_RUNNER").is_none() {
+        if let Ok(current) = std::env::current_exe() {
+            command.env("ORESLANG_TEST_RUNNER", current);
+        }
+    }
+    match command.status() {
+        Ok(status) if status.success() => ExitCode::SUCCESS,
+        Ok(status) => ExitCode::from(status.code().unwrap_or(1).clamp(1, u8::MAX as i32) as u8),
+        Err(error) => {
+            eprintln!(
+                "oreslang test: failed to start oreslang-test executable {:?}: {error};                  install the oreslang-test-cli package or set ORESLANG_TEST_CLI",
+                executable
+            );
+            ExitCode::from(2)
         }
     }
 }
