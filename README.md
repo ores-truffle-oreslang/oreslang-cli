@@ -166,24 +166,24 @@ A [repository-specific compiler compatibility matrix](docs/compiler-pr-sync.md) 
 
 ## Race and fuzz testing (staged integration)
 
-The \`oreslang test\` subcommand delegates to a separately installed
-\`oreslang-test\` executable maintained in the private
-\`ores-truffle-oreslang/oreslang-test.cli\` repository.
+The `oreslang test` subcommand delegates to a separately installed
+`oreslang-test` executable maintained in the private
+`ores-truffle-oreslang/oreslang-test.cli` repository.
 The dispatcher does not implement instrumentation or invent test results.
 
-\`\`\`sh
+```sh
 oreslang test --race suite.ores --runs 20 --seed 123
 oreslang test --fuzz suite.ores --runs 1000 --seed 123 --corpus testdata/fuzz
-\`\`\`
+```
 
-Install \`oreslang-test-cli\` alongside the Rust CLI and set
-\`ORESLANG_TEST_CLI=/path/to/oreslang-test\` if it is not on PATH. When the
-wrapper runs, it supplies \`ORESLANG_TEST_RUNNER\` as the current oreslang
-executable; \`--runner\` on the test command can override that. Runner
+Install `oreslang-test-cli` alongside the Rust CLI and set
+`ORESLANG_TEST_CLI=/path/to/oreslang-test` if it is not on PATH. When the
+wrapper runs, it supplies `ORESLANG_TEST_RUNNER` as the current oreslang
+executable; `--runner` on the test command can override that. Runner
 exit codes are propagated intact.
 
-\`--race\` **fails inconclusive** unless the backend supplies real,
-versioned memory and logical-race observations. \`--fuzz\` is currently
+`--race` **fails inconclusive** unless the backend supplies real,
+versioned memory and logical-race observations. `--fuzz` is currently
 replayable black-box fuzzing only, without coverage feedback. Both modes
-consume the native \`ORES_TEST|SUMMARY\` protocol, and neither replaces
-\`stdlib/testing.ores\`.
+consume the native `ORES_TEST|SUMMARY` protocol, and neither replaces
+`stdlib/testing.ores`.
