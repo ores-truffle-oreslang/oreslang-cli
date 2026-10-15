@@ -466,8 +466,8 @@ fn run(args: RunArgs) -> ExitCode {
 }
 
 fn test(args: TestArgs) -> ExitCode {
-    let executable = std::env::var_os("ORESLANG_TEST_CLI")
-        .unwrap_or_else(|| OsString::from("oreslang-test"));
+    let executable =
+        std::env::var_os("ORESLANG_TEST_CLI").unwrap_or_else(|| OsString::from("oreslang-test"));
     let mut command = std::process::Command::new(&executable);
     command.args(&args.args);
     // Default guest runner resolves to *this* oreslang binary so local
