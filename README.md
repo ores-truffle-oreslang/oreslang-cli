@@ -86,6 +86,23 @@ oreslang version
 oreslang --version
 ```
 
+## Permission grant boundary
+
+Permission grants are **explicit command-line authorization**. The Rust CLI
+does not infer `--allow-all`, `--allow-*`, `--deny-*` or
+`--permission-check` from inherited `ORESLANG_*` environment variables.
+In particular, an ambient `ORESLANG_ALLOW_ALL=true` must never turn a
+`oreslang run app.ores` into a privileged execution. Explicit denies still
+override explicit grants at the backend runtime policy boundary.
+
+The checked-in `.cli-flags.toml` is a **future canonical flags-2-env
+schema**. Its environment-field names must not be interpreted by this
+legacy Clap launcher as an alternate authorization channel. The eventual
+single-parser migration must preserve explicit source-of-authority tracking,
+non-escalation across compiler/runtime layers, and denial when permission
+provenance is absent. Do not load ambient or `.env` permission values as
+an implicit substitute for command-line flags.
+
 ## Compiler backend discovery
 
 The current compiler authority lives in `oreslang-source.java`. Until a
