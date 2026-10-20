@@ -366,7 +366,7 @@ fn validate_compiler_arg(raw: &str) -> Result<OsString, String> {
         || raw.starts_with("--freestanding=")
         || raw.starts_with("--ores-");
     if forbidden {
-        return Err("permission and isolate policy flags must use first-class CLI options, not --compiler-arg".into());
+        return Err("permission, isolate, and build-profile policy flags must use first-class CLI options, not --compiler-arg".into());
     }
     Ok(OsString::from(raw))
 }
