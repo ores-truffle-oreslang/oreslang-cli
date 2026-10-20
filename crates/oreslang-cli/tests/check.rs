@@ -241,7 +241,8 @@ fn compiler_arg_cannot_smuggle_permission_or_isolate_authority() {
             "compiler option unexpectedly admitted: {unsafe_option}"
         );
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains("permission, isolate, and build-profile policy flags"),
+            String::from_utf8_lossy(&output.stderr)
+                .contains("permission, isolate, and build-profile policy flags"),
             "rejection message missing for {unsafe_option}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
@@ -302,7 +303,6 @@ fn ordinary_compiler_args_still_reach_backend_without_new_permissions() {
     fs::remove_dir_all(dir).ok();
 }
 
-
 #[test]
 fn build_profile_flags_are_first_class_and_forwarded() {
     let dir = temp_dir();
@@ -328,7 +328,10 @@ fn build_profile_flags_are_first_class_and_forwarded() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("ARG:--strict-aot"), "{stdout}");
     assert!(stdout.contains("ARG:--freestanding"), "{stdout}");
-    assert!(stdout.contains("ARG:--permission-check=runtime"), "{stdout}");
+    assert!(
+        stdout.contains("ARG:--permission-check=runtime"),
+        "{stdout}"
+    );
     fs::remove_dir_all(dir).ok();
 }
 
