@@ -523,11 +523,8 @@ fn check(args: CheckArgs) -> ExitCode {
 }
 
 fn run(args: RunArgs) -> ExitCode {
-    let command = profiled_permissioned_compiler_command(
-        &args.backend,
-        &args.permissions,
-        &args.profile,
-    );
+    let command =
+        profiled_permissioned_compiler_command(&args.backend, &args.permissions, &args.profile);
     let status = std::process::Command::new(&command.program)
         .args(&command.prefix_args)
         .arg(&args.file)
