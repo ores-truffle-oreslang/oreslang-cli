@@ -204,3 +204,17 @@ versioned memory and logical-race observations. `--fuzz` is currently
 replayable black-box fuzzing only, without coverage feedback. Both modes
 consume the native `ORES_TEST|SUMMARY` protocol, and neither replaces
 `stdlib/testing.ores`.
+
+
+## Build profiles
+
+`oreslang check` and `oreslang run` accept the backend-neutral build-profile selectors
+`--release`, `--strict-aot`, and `--hard-rt`. They are mutually exclusive selectors;
+`--hard-rt` semantically includes the requirements of `strict-aot`, which includes
+`release`. `--freestanding` is orthogonal and may be combined with any profile.
+
+Runtime reflection is forbidden by the v1 profile contract. Backends must use compile-time
+introspection/code generation and explicit reachability roots instead. A backend that cannot
+prove a requested profile must reject it rather than silently weakening it.
+
+The canonical profile semantics live in `oreslang-target-profiles/docs/BUILD_PROFILES.md`.
