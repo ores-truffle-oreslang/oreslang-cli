@@ -57,6 +57,47 @@ impl PermissionCheck {
     }
 }
 
+/// Backend-neutral build-profile selectors.
+///
+/// These are first-class options so raw --compiler-arg cannot silently weaken
+/// AOT/realtime policy. Backends must fail closed when a requested profile is
+/// not yet provable.
+#[derive(Clone, Debug, Default, Args)]
+struct BuildProfileArgs {
+    /// Release build: semantic tree shaking plus runtime/metadata pruning.
+    #[arg(long, conflicts_with_all = ["strict_aot", "hard_rt"])]
+    release: bool,
+
+    /// Closed-world full AOT: release + no JIT, runtime reflection, or unresolved dynamic code.
+    #[arg(long, conflicts_with_all = ["release", "hard_rt"])]
+    strict_aot: bool,
+
+    /// Hard-real-time admission: strict AOT + no GC/unbounded allocation/waits and WCET evidence.
+    #[arg(long, conflicts_with_all = ["release", "strict_aot"])]
+    hard_rt: bool,
+
+    /// Forbid hosted stdlib roots and implicit OS/libc providers.
+    #[arg(long)]
+    freestanding: bool,
+}
+
+impl BuildProfileArgs {
+    fn backend_args(&self) -> Vec<OsString> {
+        let mut args = Vec::new();
+        if self.release {
+            args.push(OsString::from("--release"));
+        } else if self.strict_aot {
+            args.push(OsString::from("--strict-aot"));
+        } else if self.hard_rt {
+            args.push(OsString::from("--hard-rt"));
+        }
+        if self.freestanding {
+            args.push(OsString::from("--freestanding"));
+        }
+        args
+    }
+}
+
 /// Deno-style scoped permissions forwarded to the Oreslang compiler/runtime.
 ///
 /// Scope-taking flags require '=' so a bare permission flag can mean "all"
@@ -315,9 +356,17 @@ fn validate_compiler_arg(raw: &str) -> Result<OsString, String> {
         || raw.starts_with("--permission-check=")
         || raw == "--no-prompt"
         || raw.starts_with("--no-prompt=")
+        || raw == "--release"
+        || raw.starts_with("--release=")
+        || raw == "--strict-aot"
+        || raw.starts_with("--strict-aot=")
+        || raw == "--hard-rt"
+        || raw.starts_with("--hard-rt=")
+        || raw == "--freestanding"
+        || raw.starts_with("--freestanding=")
         || raw.starts_with("--ores-");
     if forbidden {
-        return Err("permission and isolate policy flags must use first-class CLI options, not --compiler-arg".into());
+        return Err("permission, isolate, and build-profile policy flags must use first-class CLI options, not --compiler-arg".into());
     }
     Ok(OsString::from(raw))
 }
@@ -336,6 +385,9 @@ struct CheckArgs {
     permissions: PermissionArgs,
 
     #[command(flatten)]
+    profile: BuildProfileArgs,
+
+    #[command(flatten)]
     backend: BackendArgs,
 }
 
@@ -347,6 +399,9 @@ struct RunArgs {
 
     #[command(flatten)]
     permissions: PermissionArgs,
+
+    #[command(flatten)]
+    profile: BuildProfileArgs,
 
     #[command(flatten)]
     backend: BackendArgs,
@@ -417,10 +472,21 @@ fn permissioned_compiler_command(
     compiler_command(backend).with_prefix_args(permissions.backend_args())
 }
 
+fn profiled_permissioned_compiler_command(
+    backend: &BackendArgs,
+    permissions: &PermissionArgs,
+    profile: &BuildProfileArgs,
+) -> CompilerCommand {
+    compiler_command(backend)
+        .with_prefix_args(profile.backend_args())
+        .with_prefix_args(permissions.backend_args())
+}
+
 fn check(args: CheckArgs) -> ExitCode {
-    let client = CompilerClient::new(permissioned_compiler_command(
+    let client = CompilerClient::new(profiled_permissioned_compiler_command(
         &args.backend,
         &args.permissions,
+        &args.profile,
     ));
     let mut diagnostics = Vec::new();
     let mut failed = false;
@@ -457,7 +523,8 @@ fn check(args: CheckArgs) -> ExitCode {
 }
 
 fn run(args: RunArgs) -> ExitCode {
-    let command = permissioned_compiler_command(&args.backend, &args.permissions);
+    let command =
+        profiled_permissioned_compiler_command(&args.backend, &args.permissions, &args.profile);
     let status = std::process::Command::new(&command.program)
         .args(&command.prefix_args)
         .arg(&args.file)
@@ -532,6 +599,8 @@ fn doctor(args: DoctorArgs) -> ExitCode {
     println!("runtime command: oreslang run <file.ores>");
     println!("language server: oreslang lsp --stdio");
     println!("permissions: Deno-style --allow-*/--deny-*; runtime enforcement is always active");
+    println!("build profiles: --release | --strict-aot | --hard-rt; --freestanding is orthogonal");
+    println!("runtime reflection: forbidden by the build-profile v1 contract");
     ExitCode::SUCCESS
 }
 

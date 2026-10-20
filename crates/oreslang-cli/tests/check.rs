@@ -220,6 +220,10 @@ fn compiler_arg_cannot_smuggle_permission_or_isolate_authority() {
         "--no-prompt",
         "--ores-permission-explicit=true",
         "--ores-capabilities=NETWORK",
+        "--release",
+        "--strict-aot",
+        "--hard-rt",
+        "--freestanding",
         "--",
         "@/tmp/backend-argfile",
     ] {
@@ -237,7 +241,8 @@ fn compiler_arg_cannot_smuggle_permission_or_isolate_authority() {
             "compiler option unexpectedly admitted: {unsafe_option}"
         );
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains("permission and isolate policy flags"),
+            String::from_utf8_lossy(&output.stderr)
+                .contains("permission, isolate, and build-profile policy flags"),
             "rejection message missing for {unsafe_option}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
@@ -295,5 +300,63 @@ fn ordinary_compiler_args_still_reach_backend_without_new_permissions() {
         "{stdout}"
     );
     assert!(!stdout.contains("ARG:--allow-all"), "{stdout}");
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn build_profile_flags_are_first_class_and_forwarded() {
+    let dir = temp_dir();
+    let source = dir.join("profile.ores");
+    fs::write(&source, "pub fnc main() => void { return; }\n").expect("source");
+    let compiler = fake_compiler(&dir, "printf 'ARG:%s\\n' \"$@\"");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_oreslang"))
+        .arg("run")
+        .arg("--strict-aot")
+        .arg("--freestanding")
+        .arg("--compiler")
+        .arg(&compiler)
+        .arg(&source)
+        .output()
+        .expect("run oreslang");
+
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ARG:--strict-aot"), "{stdout}");
+    assert!(stdout.contains("ARG:--freestanding"), "{stdout}");
+    assert!(
+        stdout.contains("ARG:--permission-check=runtime"),
+        "{stdout}"
+    );
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn build_profile_selectors_are_mutually_exclusive() {
+    let dir = temp_dir();
+    let source = dir.join("profile-conflict.ores");
+    fs::write(&source, "pub fnc main() => void { return; }\n").expect("source");
+    let compiler = fake_compiler(&dir, "printf 'unexpected backend launch\\n'");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_oreslang"))
+        .arg("check")
+        .arg("--release")
+        .arg("--strict-aot")
+        .arg("--compiler")
+        .arg(&compiler)
+        .arg(&source)
+        .output()
+        .expect("run oreslang");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("cannot be used with"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     fs::remove_dir_all(dir).ok();
 }

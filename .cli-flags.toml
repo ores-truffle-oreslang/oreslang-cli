@@ -129,3 +129,27 @@ env = "ORESLANG_NO_PROMPT"
 aliases = ["no-prompt"]
 type = "bool"
 help = "Never prompt for permission; Oreslang currently always fails closed."
+
+[flags.release]
+env = "ORESLANG_BUILD_RELEASE"
+aliases = ["release"]
+type = "bool"
+help = "Release profile: semantic tree shaking and runtime/metadata pruning."
+
+[flags.strict_aot]
+env = "ORESLANG_BUILD_STRICT_AOT"
+aliases = ["strict-aot"]
+type = "bool"
+help = "Closed-world full-AOT profile; forbids JIT, runtime reflection and unresolved dynamic code."
+
+[flags.hard_rt]
+env = "ORESLANG_BUILD_HARD_RT"
+aliases = ["hard-rt"]
+type = "bool"
+help = "Hard-real-time admission profile; implies strict AOT and requires bounded/WCET evidence."
+
+[flags.freestanding]
+env = "ORESLANG_BUILD_FREESTANDING"
+aliases = ["freestanding"]
+type = "bool"
+help = "Forbid hosted stdlib roots and implicit OS/libc target providers."
