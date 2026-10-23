@@ -28,3 +28,21 @@ jobs:
         run: |
           cargo run --locked -- version
           cargo run --locked -- doctor
+      - name: Verify Homebrew formula generator syntax and checksums contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n packaging/homebrew/generate-formula.sh
+          command -v ruby
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          sha_a="$(printf 'a%.0s' {1..64})"
+          sha_b="$(printf 'b%.0s' {1..64})"
+          bash packaging/homebrew/generate-formula.sh v0.1.0 "$sha_a" "$sha_b" "$tmp/oreslang.rb"
+          ruby -c "$tmp/oreslang.rb"
+          grep -q "oreslang-compiler-macos-arm64.tar.gz" "$tmp/oreslang.rb"
+          grep -q "oreslang-compiler-macos-x86_64.tar.gz" "$tmp/oreslang.rb"
+          if bash packaging/homebrew/generate-formula.sh v0.1.0 NOT_A_SHA "$sha_b" "$tmp/bad.rb"; then
+            echo "generator accepted invalid SHA-256" >&2
+            exit 1
+          fi
