@@ -27,9 +27,22 @@ impl CompilerCommand {
 
         Self {
             program: env::var_os("ORESLANG_COMPILER")
+                .or_else(Self::bundled_compiler)
                 .unwrap_or_else(|| OsString::from(DEFAULT_COMPILER_PROGRAM)),
             prefix_args: Vec::new(),
         }
+    }
+
+    // The release installers place the native compiler beside the public CLI.
+    // Prefer that absolute path over searching PATH; explicit overrides still win.
+    fn bundled_compiler() -> Option<OsString> {
+        let executable = env::current_exe().ok()?;
+        let candidate = Self::bundled_compiler_path(&executable);
+        candidate.is_file().then(|| candidate.into_os_string())
+    }
+
+    fn bundled_compiler_path(executable: &Path) -> PathBuf {
+        executable.with_file_name(format!("oreslang-compiler{}", std::env::consts::EXE_SUFFIX))
     }
 
     pub fn from_program(program: impl Into<OsString>) -> Self {
@@ -286,6 +299,18 @@ mod tests {
     #[test]
     fn ignores_unrelated_output() {
         assert!(parse_compiler_output("compiler cache warm", Path::new("x.ores")).is_empty());
+    }
+
+    #[test]
+    fn bundled_compiler_resolves_next_to_public_executable() {
+        let executable =
+            Path::new("custom").join(format!("oreslang{}", std::env::consts::EXE_SUFFIX));
+        let expected =
+            Path::new("custom").join(format!("oreslang-compiler{}", std::env::consts::EXE_SUFFIX));
+        assert_eq!(
+            CompilerCommand::bundled_compiler_path(&executable),
+            expected
+        );
     }
 
     #[test]
