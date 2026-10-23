@@ -76,9 +76,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'MOCK backend build failed' }
           'pub routine main(): void { return; }' | Set-Content -LiteralPath valid.ores -Encoding utf8
           'not an Oreslang source' | Set-Content -LiteralPath invalid.ores -Encoding utf8
-          & "stage/$cli" check valid.ores
+          & "./stage/$cli" check valid.ores
           if ($LASTEXITCODE -ne 0) { throw 'Sibling backend resolution rejected valid fixture' }
-          & "stage/$cli" check invalid.ores
+          & "./stage/$cli" check invalid.ores
           if ($LASTEXITCODE -eq 0) { throw 'CLI failed to propagate MOCK backend rejection' }
           if ("${{ runner.os }}" -eq 'Windows') {
             Compress-Archive -Path stage/* -DestinationPath mock-layout.zip
@@ -89,7 +89,7 @@ jobs:
             New-Item -ItemType Directory -Force -Path extracted | Out-Null
             tar -C extracted -xzf mock-layout.tar.gz
           }
-          & "extracted/$cli" check valid.ores
+          & "./extracted/$cli" check valid.ores
           if ($LASTEXITCODE -ne 0) { throw 'Extracted installer layout failed sibling backend discovery' }
           # A source-free contract check is NOT proof of a working real compiler.
           Write-Output 'SOURCE_FREE_PACKAGING_PREFLIGHT_PASS (MOCK BACKEND ONLY)'
