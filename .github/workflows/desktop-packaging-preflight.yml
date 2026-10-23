@@ -1,0 +1,134 @@
+name: Desktop packaging preflight (source-free)
+# This workflow checks installers' executable layout and hosted runner capacity.
+# It deliberately uses a MOCK compiler; never publish these artifacts as releases.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-packaging-preflight.yml"
+      - "crates/oreslang-compiler-client/src/supervisor.rs"
+      - "crates/oreslang-lsp/src/lib.rs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-cli-with-mock-backend:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target_label: macos-arm64
+          - os: macos-15-intel
+            target_label: macos-x86_64
+          - os: windows-latest
+            target_label: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout public CLI without persisted tokens
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Setup pinned Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
+        with:
+          toolchain: 1.78.0
+      - name: Test and build actual public Oreslang CLI
+        shell: pwsh
+        run: |
+          cargo test --workspace --locked
+          if ($LASTEXITCODE -ne 0) { throw 'Public CLI tests failed' }
+          cargo build --release --locked --bin oreslang
+          if ($LASTEXITCODE -ne 0) { throw 'Public CLI build failed' }
+      - name: Build isolated MOCK backend and smoke installer layout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path stage | Out-Null
+          $suffix = if ("${{ runner.os }}" -eq 'Windows') { '.exe' } else { '' }
+          $cli = "oreslang$suffix"
+          $backend = "oreslang-compiler$suffix"
+          Copy-Item "target/release/$cli" "stage/$cli"
+          @'
+          use std::{env, fs, process};
+          fn main() {
+              let args: Vec<String> = env::args().skip(1).collect();
+              // The real CLI forwards explicit compile-time permission provenance.
+              if args.len() != 3 || args[0] != "--permission-check=runtime" || args[1] != "--check" {
+                  eprintln!("MOCK backend only accepts --check <file>");
+                  process::exit(2);
+              }
+              let contents = match fs::read_to_string(&args[2]) {
+                  Ok(contents) => contents,
+                  Err(_) => process::exit(3),
+              };
+              if !contents.contains("pub routine main") {
+                  eprintln!("MOCK intentionally rejects fixture");
+                  process::exit(4);
+              }
+          }
+          '@ | Set-Content -LiteralPath mock-compiler.rs -Encoding utf8
+          rustc --edition 2021 mock-compiler.rs -o "stage/$backend"
+          if ($LASTEXITCODE -ne 0) { throw 'MOCK backend build failed' }
+          'pub routine main(): void { return; }' | Set-Content -LiteralPath valid.ores -Encoding utf8
+          'not an Oreslang source' | Set-Content -LiteralPath invalid.ores -Encoding utf8
+          & "./stage/$cli" check valid.ores
+          if ($LASTEXITCODE -ne 0) { throw 'Sibling backend resolution rejected valid fixture' }
+          & "./stage/$cli" check invalid.ores
+          if ($LASTEXITCODE -eq 0) { throw 'CLI failed to propagate MOCK backend rejection' }
+          if ("${{ runner.os }}" -eq 'Windows') {
+            Compress-Archive -Path stage/* -DestinationPath mock-layout.zip
+            New-Item -ItemType Directory -Force -Path extracted | Out-Null
+            Expand-Archive -Path mock-layout.zip -DestinationPath extracted
+          } else {
+            tar -C stage -czf mock-layout.tar.gz .
+            New-Item -ItemType Directory -Force -Path extracted | Out-Null
+            tar -C extracted -xzf mock-layout.tar.gz
+          }
+          & "./extracted/$cli" check valid.ores
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted installer layout failed sibling backend discovery' }
+          # A source-free contract check is NOT proof of a working real compiler.
+          Write-Output 'SOURCE_FREE_PACKAGING_PREFLIGHT_PASS (MOCK BACKEND ONLY)'
+      - name: Build, install and uninstall a Windows MOCK installer (never publish)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup install failed' }
+          $iscc = Join-Path "${env:ProgramFiles(x86)}" 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc)) { throw 'Inno Setup compiler missing' }
+          @'
+          [Setup]
+          AppId=OreslangPackagingPreflightMock
+          AppName=Oreslang MOCK Packaging Preflight
+          AppVersion=0.0.0.1
+          DefaultDirName={localappdata}\Programs\OreslangPackagingPreflight
+          PrivilegesRequired=lowest
+          DisableProgramGroupPage=yes
+          OutputDir=preflight-installer
+          OutputBaseFilename=oreslang-preflight-setup
+          Compression=lzma
+          SolidCompression=yes
+          [Files]
+          Source: "stage\oreslang.exe"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "stage\oreslang-compiler.exe"; DestDir: "{app}"; Flags: ignoreversion
+          '@ | Set-Content -LiteralPath preflight.iss -Encoding utf8
+          & $iscc preflight.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compile failed' }
+          $setup = (Resolve-Path 'preflight-installer/oreslang-preflight-setup.exe').Path
+          $proc = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "Mock installer returned $($proc.ExitCode)" }
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs/OreslangPackagingPreflight'
+          $installed = Join-Path $dir 'oreslang.exe'
+          $uninstall = Join-Path $dir 'unins000.exe'
+          if (-not (Test-Path -LiteralPath $installed)) { throw 'Installed CLI missing' }
+          & $installed check valid.ores
+          if ($LASTEXITCODE -ne 0) { throw 'Installed MOCK compiler layout failed' }
+          if (-not (Test-Path -LiteralPath $uninstall)) { throw 'Uninstaller missing' }
+          $proc = Start-Process -FilePath $uninstall -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "Mock uninstaller returned $($proc.ExitCode)" }
+          if (Test-Path -LiteralPath $installed) { throw 'Uninstaller left the installed CLI behind' }
+          Write-Output 'WINDOWS_MOCK_INSTALL_UNINSTALL_PASS (NOT THE REAL COMPILER)'
