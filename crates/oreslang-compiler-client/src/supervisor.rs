@@ -140,10 +140,8 @@ mod tests {
     fn fingerprint_changes_when_file_changes() {
         // Rust test thread names contain "::", which is invalid in a Windows filename.
         // The process ID plus this single test's fixed suffix is collision-free here.
-        let base = std::env::temp_dir().join(format!(
-            "oreslang-supervisor-{}-fingerprint",
-            std::process::id()
-        ));
+        let filename = format!("oreslang-supervisor-{}-fingerprint", std::process::id());
+        let base = std::env::temp_dir().join(filename);
         let _ = fs::remove_file(&base);
         fs::write(&base, "a").expect("write");
         let first = FileFingerprint::read(&base).expect("fingerprint");
