@@ -98,3 +98,44 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted installer layout failed sibling backend discovery' }
           # A source-free contract check is NOT proof of a working real compiler.
           Write-Output 'SOURCE_FREE_PACKAGING_PREFLIGHT_PASS (MOCK BACKEND ONLY)'
+      - name: Build, install and uninstall a Windows MOCK installer (never publish)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup install failed' }
+          $iscc = Join-Path "${env:ProgramFiles(x86)}" 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc)) { throw 'Inno Setup compiler missing' }
+          @'
+          [Setup]
+          AppId=OreslangPackagingPreflightMock
+          AppName=Oreslang MOCK Packaging Preflight
+          AppVersion=0.0.0.1
+          DefaultDirName={localappdata}\Programs\OreslangPackagingPreflight
+          PrivilegesRequired=lowest
+          DisableProgramGroupPage=yes
+          OutputDir=preflight-installer
+          OutputBaseFilename=oreslang-preflight-setup
+          Compression=lzma
+          SolidCompression=yes
+          [Files]
+          Source: "stage\oreslang.exe"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "stage\oreslang-compiler.exe"; DestDir: "{app}"; Flags: ignoreversion
+          '@ | Set-Content -LiteralPath preflight.iss -Encoding utf8
+          & $iscc preflight.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compile failed' }
+          $setup = (Resolve-Path 'preflight-installer/oreslang-preflight-setup.exe').Path
+          $proc = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "Mock installer returned $($proc.ExitCode)" }
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs/OreslangPackagingPreflight'
+          $installed = Join-Path $dir 'oreslang.exe'
+          $uninstall = Join-Path $dir 'unins000.exe'
+          if (-not (Test-Path -LiteralPath $installed)) { throw 'Installed CLI missing' }
+          & $installed check valid.ores
+          if ($LASTEXITCODE -ne 0) { throw 'Installed MOCK compiler layout failed' }
+          if (-not (Test-Path -LiteralPath $uninstall)) { throw 'Uninstaller missing' }
+          $proc = Start-Process -FilePath $uninstall -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "Mock uninstaller returned $($proc.ExitCode)" }
+          if (Test-Path -LiteralPath $installed) { throw 'Uninstaller left the installed CLI behind' }
+          Write-Output 'WINDOWS_MOCK_INSTALL_UNINSTALL_PASS (NOT THE REAL COMPILER)'
