@@ -42,10 +42,7 @@ impl CompilerCommand {
     }
 
     fn bundled_compiler_path(executable: &Path) -> PathBuf {
-        executable.with_file_name(format!(
-            "oreslang-compiler{}",
-            std::env::consts::EXE_SUFFIX
-        ))
+        executable.with_file_name(format!("oreslang-compiler{}", std::env::consts::EXE_SUFFIX))
     }
 
     pub fn from_program(program: impl Into<OsString>) -> Self {
@@ -306,15 +303,14 @@ mod tests {
 
     #[test]
     fn bundled_compiler_resolves_next_to_public_executable() {
-        let executable = Path::new("custom").join(format!(
-            "oreslang{}",
-            std::env::consts::EXE_SUFFIX
-        ));
-        let expected = Path::new("custom").join(format!(
-            "oreslang-compiler{}",
-            std::env::consts::EXE_SUFFIX
-        ));
-        assert_eq!(CompilerCommand::bundled_compiler_path(&executable), expected);
+        let executable =
+            Path::new("custom").join(format!("oreslang{}", std::env::consts::EXE_SUFFIX));
+        let expected =
+            Path::new("custom").join(format!("oreslang-compiler{}", std::env::consts::EXE_SUFFIX));
+        assert_eq!(
+            CompilerCommand::bundled_compiler_path(&executable),
+            expected
+        );
     }
 
     #[test]
