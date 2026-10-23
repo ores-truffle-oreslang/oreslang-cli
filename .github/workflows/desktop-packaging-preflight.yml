@@ -2,13 +2,6 @@ name: Desktop packaging preflight (source-free)
 # This workflow checks installers' executable layout and hosted runner capacity.
 # It deliberately uses a MOCK compiler; never publish these artifacts as releases.
 on:
-  push:
-    branches:
-      - "feat/desktop-packaging-ci-smoke-*"
-    paths:
-      - ".github/workflows/desktop-packaging-preflight.yml"
-      - "crates/oreslang-compiler-client/src/supervisor.rs"
-      - "crates/oreslang-lsp/src/lib.rs"
   pull_request:
     paths:
       - ".github/workflows/desktop-packaging-preflight.yml"
