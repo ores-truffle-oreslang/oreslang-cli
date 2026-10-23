@@ -551,9 +551,10 @@ mod tests {
 
     #[test]
     fn file_uri_round_trip_handles_spaces() {
-        let path = PathBuf::from("/tmp/ores lang/demo.ores");
+        let path = std::env::temp_dir().join("ores lang").join("demo.ores");
         let uri = path_to_file_uri(&path);
-        assert_eq!(uri, "file:///tmp/ores%20lang/demo.ores");
+        assert!(uri.starts_with("file:///"));
+        assert!(uri.ends_with("/ores%20lang/demo.ores"));
         assert_eq!(uri_to_path(&uri), Some(path));
     }
 
