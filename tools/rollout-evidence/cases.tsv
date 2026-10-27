@@ -1,0 +1,3 @@
+compiler-discovery	host	host
+diagnostic-contract	host	host
+no-fake-artifact	host	host
