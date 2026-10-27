@@ -1,0 +1,29 @@
+name: Rollout receipt checker self-tests
+on:
+  pull_request:
+    paths:
+      - 'tools/rollout-evidence/**'
+      - '.github/workflows/rollout-evidence.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  receipt-checker-self-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Toolchain identity
+        run: |
+          rustc --version
+          cargo --version
+      - name: Format
+        run: cargo fmt --manifest-path tools/rollout-evidence/Cargo.toml -- --check
+      - name: Lint
+        run: cargo clippy --manifest-path tools/rollout-evidence/Cargo.toml --offline --locked --all-targets -- -D warnings
+      - name: Receipt inspector unit tests (not guest execution)
+        run: cargo test --manifest-path tools/rollout-evidence/Cargo.toml --offline --locked
+      - name: Acceptance profile CLI
+        run: cargo run --manifest-path tools/rollout-evidence/Cargo.toml --offline --locked -- --cases
