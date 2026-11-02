@@ -775,6 +775,44 @@ mod tests {
     }
 
     #[test]
+    fn source_extensions_are_independent_of_cli_alias() {
+        for (binary, source) in [("atto", "demo.ores"), ("oreslang", "demo.atto")] {
+            let check = Cli::try_parse_from([binary, "check", source])
+                .expect("both source extensions must work with either CLI alias");
+            let Command::Check(args) = check.command else {
+                panic!("expected check command");
+            };
+            assert_eq!(args.files, vec![PathBuf::from(source)]);
+
+            let run = Cli::try_parse_from([binary, "run", source])
+                .expect("both source extensions must work with either CLI alias");
+            let Command::Run(args) = run.command else {
+                panic!("expected run command");
+            };
+            assert_eq!(args.file, PathBuf::from(source));
+        }
+    }
+
+    #[test]
+    fn canonical_atto_source_survives_bare_permission_flags() {
+        let check = Cli::try_parse_from(["atto", "check", "--allow-read", "demo.atto"])
+            .expect("bare permission must not consume canonical source path");
+        let Command::Check(args) = check.command else {
+            panic!("expected check command");
+        };
+        assert_eq!(args.permissions.allow_read.as_deref(), Some("*"));
+        assert_eq!(args.files, vec![PathBuf::from("demo.atto")]);
+
+        let run = Cli::try_parse_from(["atto", "run", "--allow-net", "demo.atto"])
+            .expect("bare permission must not consume canonical source path");
+        let Command::Run(args) = run.command else {
+            panic!("expected run command");
+        };
+        assert_eq!(args.permissions.allow_net.as_deref(), Some("*"));
+        assert_eq!(args.file, PathBuf::from("demo.atto"));
+    }
+
+    #[test]
     fn run_accepts_bare_permission_without_swallowing_source() {
         let cli = Cli::try_parse_from(["oreslang", "run", "--allow-net", "demo.ores"])
             .expect("run permission CLI should parse");
