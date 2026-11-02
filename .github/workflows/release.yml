@@ -34,8 +34,10 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # pinned
         with:
           toolchain: 1.78.0
           targets: ${{ matrix.target }}
@@ -44,7 +46,7 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Build release binary
-        run: cargo build --release --locked --bin oreslang --target ${{ matrix.target }}
+        run: cargo build --release --locked --bins --target ${{ matrix.target }}
 
       - name: Package Unix binary
         if: runner.os != 'Windows'
@@ -52,7 +54,8 @@ jobs:
         run: |
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" dist/
-          tar -C dist -czf "${{ matrix.archive }}" "${{ matrix.binary }}"
+          cp "target/${{ matrix.target }}/release/atto" dist/
+          tar -C dist -czf "${{ matrix.archive }}" "${{ matrix.binary }}" atto
 
       - name: Package Windows binary
         if: runner.os == 'Windows'
@@ -60,9 +63,10 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" "dist/${{ matrix.binary }}"
-          Compress-Archive -Path "dist/${{ matrix.binary }}" -DestinationPath "${{ matrix.archive }}"
+          Copy-Item "target/${{ matrix.target }}/release/atto.exe" "dist/atto.exe"
+          Compress-Archive -Path "dist/*.exe" -DestinationPath "${{ matrix.archive }}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # pinned v4
         with:
           name: ${{ matrix.archive }}
           path: ${{ matrix.archive }}
