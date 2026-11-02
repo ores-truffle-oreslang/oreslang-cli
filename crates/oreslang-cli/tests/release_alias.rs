@@ -60,7 +60,9 @@ fn release_contract_distinguishes_cli_only_from_native_bundles_and_forbids_overw
 fn release_upload_treats_tag_and_archive_as_data_not_shell_source() {
     let yaml = include_str!("../../../.github/workflows/release.yml");
     assert!(yaml.contains("RELEASE_TAG: ${{ github.ref_name }}"));
-    assert!(yaml.contains("gh release upload \"$RELEASE_TAG\" \"dist/$archive\" --repo \"$GITHUB_REPOSITORY\""));
+    assert!(yaml.contains(
+        "gh release upload \"$RELEASE_TAG\" \"dist/$archive\" --repo \"$GITHUB_REPOSITORY\""
+    ));
     assert!(yaml.contains("gh run download \"$GITHUB_RUN_ID\" --repo \"$GITHUB_REPOSITORY\""));
     assert!(!yaml.contains("run: gh release upload \"${{"));
     assert!(!yaml.contains("--clobber"));
