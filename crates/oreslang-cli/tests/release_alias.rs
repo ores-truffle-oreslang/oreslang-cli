@@ -70,7 +70,8 @@ fn release_upload_treats_tag_and_archive_as_data_not_shell_source() {
 
 #[test]
 fn release_compilation_has_no_write_token_and_publication_has_no_checkout() {
-    let yaml = include_str!("../../../.github/workflows/release.yml");
+    // Windows checkouts may normalize text to CRLF; inspect the same logical YAML.
+    let yaml = include_str!("../../../.github/workflows/release.yml").replace("\r\n", "\n");
     let (build, publish) = yaml
         .split_once("\n  publish:\n")
         .expect("release must separate build and publish jobs");
