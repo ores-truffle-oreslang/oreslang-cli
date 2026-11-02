@@ -96,3 +96,13 @@ fn release_compilation_has_no_write_token_and_publication_has_no_checkout() {
         assert!(publish.contains(archive), "missing artifact: {archive}");
     }
 }
+
+#[test]
+fn release_macos_runners_match_archive_architectures_and_are_not_retired() {
+    let yaml = include_str!("../../../.github/workflows/release.yml").replace("\r\n", "\n");
+    assert!(yaml.contains("os: macos-15-intel\n            target: x86_64-apple-darwin"));
+    assert!(yaml.contains("os: macos-15\n            target: aarch64-apple-darwin"));
+    for retired in ["macos-13", "macos-13-large", "macos-13-xlarge"] {
+        assert!(!yaml.contains(&format!("os: {retired}\n")), "retired macOS runner: {retired}");
+    }
+}
