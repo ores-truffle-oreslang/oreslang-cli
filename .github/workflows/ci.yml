@@ -26,8 +26,10 @@ jobs:
         run: cargo test --workspace --locked
       - name: Smoke test public CLI
         run: |
-          cargo run --locked -- version
-          cargo run --locked -- doctor
+          cargo run --locked --bin oreslang -- version
+          cargo run --locked --bin atto -- version
+          cargo run --locked --bin oreslang -- doctor
+          cargo run --locked --bin atto -- doctor
       - name: Verify Homebrew formula generator syntax and checksums contract
         shell: bash
         run: |
