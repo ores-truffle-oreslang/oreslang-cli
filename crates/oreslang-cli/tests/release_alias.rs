@@ -55,3 +55,13 @@ fn release_contract_distinguishes_cli_only_from_native_bundles_and_forbids_overw
         "published release assets must not be overwritten by reruns"
     );
 }
+
+#[test]
+fn release_upload_treats_tag_and_archive_as_data_not_shell_source() {
+    let yaml = include_str!("../../../.github/workflows/release.yml");
+    assert!(yaml.contains("RELEASE_TAG: ${{ github.ref_name }}"));
+    assert!(yaml.contains("RELEASE_ARCHIVE: ${{ matrix.archive }}"));
+    assert!(yaml.contains("run: gh release upload \"$RELEASE_TAG\" \"$RELEASE_ARCHIVE\""));
+    assert!(!yaml.contains("run: gh release upload \"${{"));
+    assert!(!yaml.contains("--clobber"));
+}
