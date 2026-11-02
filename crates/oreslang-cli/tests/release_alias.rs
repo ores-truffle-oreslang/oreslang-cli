@@ -25,3 +25,30 @@ fn ci_smokes_both_real_cargo_binaries() {
         assert!(yaml.contains(cmd), "missing CI command: {cmd}");
     }
 }
+
+#[test]
+fn release_contract_distinguishes_cli_only_from_native_bundles_and_forbids_overwrite() {
+    let docs = include_str!("../../../docs/DESKTOP_RELEASE.md");
+    let release = include_str!("../../../.github/workflows/release.yml");
+    let formula = include_str!("../../../packaging/homebrew/generate-formula.sh");
+    assert!(docs.contains("three executables"));
+    assert!(docs.contains("CLI-only archives"));
+    assert!(docs.contains("not a native compiler release"));
+    assert!(docs.contains("MOCK backend"));
+    for archive in [
+        "oreslang-compiler-macos-arm64.tar.gz",
+        "oreslang-compiler-macos-x86_64.tar.gz",
+    ] {
+        assert!(formula.contains(archive), "missing compiler bundle: {archive}");
+        assert!(
+            !release.contains(archive),
+            "public CLI-only workflow must not masquerade as compiler bundle: {archive}"
+        );
+    }
+    assert!(formula.contains("bin.install \\"atto\\", \\"oreslang\\", \\"oreslang-compiler\\""));
+    assert!(release.contains("gh release upload"));
+    assert!(
+        !release.contains("--clobber"),
+        "published release assets must not be overwritten by reruns"
+    );
+}
