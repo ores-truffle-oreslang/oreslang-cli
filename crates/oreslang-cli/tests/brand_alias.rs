@@ -28,9 +28,14 @@ fn both_binary_names_are_built_from_one_parser_and_expose_matching_subcommands()
         .output()
         .unwrap();
     assert!(atto_v.status.success() && old_v.status.success());
+    let atto_version = String::from_utf8(atto_v.stdout).unwrap();
+    let old_version = String::from_utf8(old_v.stdout).unwrap();
+    assert!(atto_version.starts_with("atto "), "{atto_version}");
+    assert!(old_version.starts_with("oreslang "), "{old_version}");
     assert_eq!(
-        atto_v.stdout, old_v.stdout,
-        "version contract changed by alias"
+        atto_version.strip_prefix("atto "),
+        old_version.strip_prefix("oreslang "),
+        "semantic version number changed by alias"
     );
 }
 
