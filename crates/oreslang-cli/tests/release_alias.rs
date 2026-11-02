@@ -45,7 +45,7 @@ fn release_contract_distinguishes_cli_only_from_native_bundles_and_forbids_overw
             "public CLI-only workflow must not masquerade as compiler bundle: {archive}"
         );
     }
-    assert!(formula.contains("bin.install \\"atto\\", \\"oreslang\\", \\"oreslang-compiler\\""));
+    assert!(formula.contains(r#"bin.install "atto", "oreslang", "oreslang-compiler""#));
     assert!(release.contains("gh release upload"));
     assert!(
         !release.contains("--clobber"),
