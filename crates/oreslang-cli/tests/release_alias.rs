@@ -198,3 +198,15 @@ fn release_tag_identity_checks_bracket_downloads_and_draft_publication() {
     assert!(download < checks[1].0 && checks[1].0 < create);
     assert!(create < upload && upload < checks[2].0 && checks[2].0 < publish_release);
 }
+
+#[test]
+fn release_publisher_serializes_same_tag_without_cancelling_active_attempt() {
+    let yaml = include_str!("../../../.github/workflows/release.yml").replace("\r\n", "\n");
+    let (_, publish) = yaml.split_once("\n  publish:\n").expect("publish job");
+    let (job_header, _) = publish.split_once("\n    steps:\n").expect("publish steps");
+    assert!(job_header.contains(
+        "    concurrency:\n      group: attolang-cli-release-${{ github.repository }}-${{ github.ref }}\n      cancel-in-progress: false\n"
+    ));
+    assert!(!job_header.contains("cancel-in-progress: true"));
+    assert!(job_header.contains("needs: build"));
+}

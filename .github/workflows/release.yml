@@ -72,6 +72,10 @@ jobs:
           path: ${{ matrix.archive }}
 
   publish:
+    # Serialize same-tag publications; a second attempt must never cancel the first.
+    concurrency:
+      group: attolang-cli-release-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: false
     needs: build
     runs-on: ubuntu-latest
     permissions:
