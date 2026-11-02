@@ -13,8 +13,8 @@ fn both_binary_names_are_built_from_one_parser_and_expose_matching_subcommands()
     assert!(atto.status.success() && legacy.status.success());
     let new_help = String::from_utf8_lossy(&atto.stdout);
     let old_help = String::from_utf8_lossy(&legacy.stdout);
-    assert!(new_help.contains("Usage: atto "), "{new_help}");
-    assert!(old_help.contains("Usage: oreslang "), "{old_help}");
+    assert!(new_help.contains("Usage: atto"), "{new_help}");
+    assert!(old_help.contains("Usage: oreslang"), "{old_help}");
     for sub in ["check", "run", "test", "lsp", "doctor", "version"] {
         assert!(new_help.contains(sub), "{sub}: {new_help}");
         assert!(old_help.contains(sub), "{sub}: {old_help}");
