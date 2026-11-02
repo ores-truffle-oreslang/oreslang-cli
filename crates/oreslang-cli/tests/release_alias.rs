@@ -60,8 +60,36 @@ fn release_contract_distinguishes_cli_only_from_native_bundles_and_forbids_overw
 fn release_upload_treats_tag_and_archive_as_data_not_shell_source() {
     let yaml = include_str!("../../../.github/workflows/release.yml");
     assert!(yaml.contains("RELEASE_TAG: ${{ github.ref_name }}"));
-    assert!(yaml.contains("RELEASE_ARCHIVE: ${{ matrix.archive }}"));
-    assert!(yaml.contains("run: gh release upload \"$RELEASE_TAG\" \"$RELEASE_ARCHIVE\""));
+    assert!(yaml.contains("gh release upload \"$RELEASE_TAG\" \"dist/$archive\" --repo \"$GITHUB_REPOSITORY\""));
+    assert!(yaml.contains("gh run download \"$GITHUB_RUN_ID\" --repo \"$GITHUB_REPOSITORY\""));
     assert!(!yaml.contains("run: gh release upload \"${{"));
     assert!(!yaml.contains("--clobber"));
+}
+
+#[test]
+fn release_compilation_has_no_write_token_and_publication_has_no_checkout() {
+    let yaml = include_str!("../../../.github/workflows/release.yml");
+    let (build, publish) = yaml
+        .split_once("\n  publish:\n")
+        .expect("release must separate build and publish jobs");
+    assert!(build.contains("permissions:\n  contents: read"));
+    assert!(!build.contains("contents: write"));
+    assert!(!build.contains("GH_TOKEN:"));
+    assert!(build.contains("cargo test --workspace --locked"));
+    assert!(build.contains("actions/upload-artifact@"));
+    assert!(publish.contains("needs: build"));
+    assert!(publish.contains("actions: read"));
+    assert!(publish.contains("contents: write"));
+    assert!(publish.contains("GH_TOKEN: ${{ github.token }}"));
+    assert!(!publish.contains("actions/checkout@"));
+    assert!(!publish.contains("cargo "));
+    assert!(publish.contains("set -euo pipefail"));
+    for archive in [
+        "oreslang-linux-x86_64.tar.gz",
+        "oreslang-macos-x86_64.tar.gz",
+        "oreslang-macos-aarch64.tar.gz",
+        "oreslang-windows-x86_64.zip",
+    ] {
+        assert!(publish.contains(archive), "missing artifact: {archive}");
+    }
 }
