@@ -373,7 +373,7 @@ fn validate_compiler_arg(raw: &str) -> Result<OsString, String> {
 
 #[derive(Debug, Args)]
 struct CheckArgs {
-    /// Oreslang source files to check.
+    /// AttoLang source files to check (.atto canonical; .ores remains compatible).
     #[arg(required = true, value_name = "FILE")]
     files: Vec<PathBuf>,
 
@@ -393,7 +393,7 @@ struct CheckArgs {
 
 #[derive(Debug, Args)]
 struct RunArgs {
-    /// Oreslang source file to execute.
+    /// AttoLang source file to execute (.atto canonical; .ores remains compatible).
     #[arg(required = true, value_name = "FILE")]
     file: PathBuf,
 
@@ -617,8 +617,8 @@ fn doctor(args: DoctorArgs) -> ExitCode {
     println!("oreslang {}", env!("CARGO_PKG_VERSION"));
     println!("diagnostic protocol: v{DIAGNOSTIC_PROTOCOL_VERSION}");
     println!("compiler backend: {}", command.display());
-    println!("public editor command: oreslang check <file.ores>");
-    println!("runtime command: oreslang run <file.ores>");
+    println!("public editor command: atto check <file.atto> (legacy: oreslang check <file.ores>)");
+    println!("runtime command: atto run <file.atto> (legacy: oreslang run <file.ores>)");
     println!("language server: oreslang lsp --stdio");
     println!("permissions: Deno-style --allow-*/--deny-*; runtime enforcement is always active");
     println!("build profiles: --release | --strict-aot | --hard-rt; --freestanding is orthogonal");
@@ -733,6 +733,45 @@ mod tests {
         };
         assert_eq!(args.permissions.allow_read.as_deref(), Some("*"));
         assert_eq!(args.files, vec![PathBuf::from("demo.ores")]);
+    }
+
+    #[test]
+    fn check_accepts_canonical_atto_source_path() {
+        let cli = Cli::try_parse_from(["atto", "check", "demo.atto"])
+            .expect("AttoLang source path should parse");
+
+        let Command::Check(args) = cli.command else {
+            panic!("expected check command");
+        };
+        assert_eq!(args.files, vec![PathBuf::from("demo.atto")]);
+    }
+
+    #[test]
+    fn run_accepts_canonical_atto_source_path() {
+        let cli = Cli::try_parse_from(["atto", "run", "demo.atto"])
+            .expect("AttoLang source path should parse");
+
+        let Command::Run(args) = cli.command else {
+            panic!("expected run command");
+        };
+        assert_eq!(args.file, PathBuf::from("demo.atto"));
+    }
+
+    #[test]
+    fn legacy_ores_source_paths_remain_accepted() {
+        let check = Cli::try_parse_from(["oreslang", "check", "demo.ores"])
+            .expect("legacy Ores source path should remain compatible");
+        let Command::Check(args) = check.command else {
+            panic!("expected check command");
+        };
+        assert_eq!(args.files, vec![PathBuf::from("demo.ores")]);
+
+        let run = Cli::try_parse_from(["oreslang", "run", "demo.ores"])
+            .expect("legacy Ores source path should remain compatible");
+        let Command::Run(args) = run.command else {
+            panic!("expected run command");
+        };
+        assert_eq!(args.file, PathBuf::from("demo.ores"));
     }
 
     #[test]

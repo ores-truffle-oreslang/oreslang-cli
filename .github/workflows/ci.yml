@@ -30,6 +30,8 @@ jobs:
           cargo run --locked --bin atto -- version
           cargo run --locked --bin oreslang -- doctor
           cargo run --locked --bin atto -- doctor
+          cargo test --locked -p oreslang-cli check_accepts_canonical_atto_source_path
+          cargo test --locked -p oreslang-cli run_accepts_canonical_atto_source_path
       - name: Verify Homebrew formula generator syntax and checksums contract
         shell: bash
         run: |
