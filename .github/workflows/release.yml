@@ -128,12 +128,43 @@ jobs:
           python3 - "$PWD/dist" <<'PY'
           import pathlib
           import stat
+          import struct
           import sys
           import tarfile
           import zipfile
           
           root = pathlib.Path(sys.argv[1])
           limit = 256 * 1024 * 1024
+          
+          def verify_binary_header(stream, archive):
+              # Validate format and target CPU, not code authenticity; source-free fixtures exercise this.
+              header = stream.read(4096)
+              if archive == "oreslang-linux-x86_64.tar.gz":
+                  valid = (
+                      len(header) >= 64 and header[:4] == b"\x7fELF"
+                      and header[4:6] == b"\x02\x01"
+                      and struct.unpack_from("<H", header, 18)[0] == 62
+                  )
+              elif archive in ("oreslang-macos-x86_64.tar.gz", "oreslang-macos-aarch64.tar.gz"):
+                  cpu = 0x01000007 if archive == "oreslang-macos-x86_64.tar.gz" else 0x0100000c
+                  valid = (
+                      len(header) >= 32 and header[:4] == b"\xcf\xfa\xed\xfe"
+                      and struct.unpack_from("<I", header, 4)[0] == cpu
+                  )
+              elif archive == "oreslang-windows-x86_64.zip":
+                  valid = False
+                  if len(header) >= 64 and header[:2] == b"MZ":
+                      offset = struct.unpack_from("<I", header, 0x3c)[0]
+                      valid = (
+                          64 <= offset and offset + 6 <= len(header)
+                          and header[offset:offset + 4] == b"PE\x00\x00"
+                          and struct.unpack_from("<H", header, offset + 4)[0] == 0x8664
+                      )
+              else:
+                  raise ValueError(f"unknown release target: {archive}")
+              if not valid:
+                  raise ValueError(f"{archive}: binary header does not match release target")
+          
           unix_archives = (
               "oreslang-linux-x86_64.tar.gz",
               "oreslang-macos-x86_64.tar.gz",
@@ -151,6 +182,7 @@ jobs:
                       if stream is None:
                           raise ValueError(f"{archive}: unreadable member: {member.name}")
                       with stream:
+                          verify_binary_header(stream, archive)
                           while stream.read(1024 * 1024):
                               pass
           
@@ -167,6 +199,7 @@ jobs:
                   if not 0 < member.file_size <= limit:
                       raise ValueError(f"{archive}: unsafe member size: {member.filename}")
                   with zipped.open(member) as stream:
+                      verify_binary_header(stream, archive)
                       while stream.read(1024 * 1024):
                           pass
           PY
