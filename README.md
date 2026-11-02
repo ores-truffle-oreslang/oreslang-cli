@@ -1,6 +1,9 @@
-# oreslang-cli
+# AttoLang CLI (`oreslang-cli`)
 
-Canonical developer-tooling and IDE frontend for Oreslang.
+Canonical developer-tooling and IDE frontend for **AttoLang**.
+
+The repository and executable retain their historical `oreslang` names for compatibility. This is a public-product naming update, **not** a rename of the CLI, diagnostic protocol, package identifiers or compiler backend.
+
 
 The public executable is:
 
@@ -13,18 +16,21 @@ not depend on that unrelated tool.
 
 ## Ownership boundary
 
-- `oreslang-source.java` owns the Oreslang lexer, parser, type checker,
+- `oreslang-source.java` owns the AttoLang lexer, parser, type checker,
   ownership checker, import graph, compiler APIs, runtime, and authoritative
   diagnostic production.
 - `oreslang-cli` owns the developer-facing process/transport boundary:
   command-line UX, machine-readable diagnostic formats, compiler discovery,
   and eventually LSP/session management.
 - `vscode-plugins` and `sublime-text-plugins` are thin editor clients. They
-  invoke `oreslang`; they do not implement a second Oreslang compiler.
+  invoke `oreslang`; they do not implement a second AttoLang compiler.
 
-The Rust CLI deliberately does **not** parse or type-check Oreslang source.
+The Rust CLI deliberately does **not** parse or type-check AttoLang source.
 
 ## Commands
+
+The commands below preserve existing `.ores` examples and the current `oreslang` executable. New AttoLang source should use `.atto` when a specific compiler/CLI release accepts that extension; support is not established by this README.
+
 
 ### Check
 
@@ -173,7 +179,7 @@ Next layers include source-overlay checking, `oreslang check --watch`, and
 compiler-backed formatting, symbols, semantic tokens, references, rename,
 completion, and code actions.
 
-Those features belong here as transport/tooling. Oreslang language semantics
+Those features belong here as transport/tooling. AttoLang language semantics
 remain in `oreslang-source.java`.
 
 ## Compiler PR checkpoint (2026-10-06)
