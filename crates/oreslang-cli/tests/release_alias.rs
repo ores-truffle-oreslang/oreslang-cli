@@ -121,7 +121,10 @@ fn release_requires_protected_main_and_tag_ancestry_before_publication() {
         "gh api \"repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main\" --jq '.status'",
         "ahead|identical)",
     ] {
-        assert!(publish.contains(required), "missing release governance gate: {required}");
+        assert!(
+            publish.contains(required),
+            "missing release governance gate: {required}"
+        );
     }
     let protection = publish.find("protected=").unwrap();
     let ancestry = publish.find("ancestry=").unwrap();
@@ -145,12 +148,17 @@ fn release_downloads_and_validates_every_archive_before_draft_publication() {
         "gh release edit \"$RELEASE_TAG\"",
         "--draft=false",
     ] {
-        assert!(publish.contains(required), "missing immutable publication gate: {required}");
+        assert!(
+            publish.contains(required),
+            "missing immutable publication gate: {required}"
+        );
     }
     let download = publish.find("gh run download").unwrap();
     let validation = publish.find("unzip -Z -1").unwrap();
     let create = publish.find("gh release create").unwrap();
     let upload = publish.find("gh release upload").unwrap();
     let publish_release = publish.find("gh release edit").unwrap();
-    assert!(download < validation && validation < create && create < upload && upload < publish_release);
+    assert!(
+        download < validation && validation < create && create < upload && upload < publish_release
+    );
 }
