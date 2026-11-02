@@ -39,7 +39,10 @@ fn release_contract_distinguishes_cli_only_from_native_bundles_and_forbids_overw
         "oreslang-compiler-macos-arm64.tar.gz",
         "oreslang-compiler-macos-x86_64.tar.gz",
     ] {
-        assert!(formula.contains(archive), "missing compiler bundle: {archive}");
+        assert!(
+            formula.contains(archive),
+            "missing compiler bundle: {archive}"
+        );
         assert!(
             !release.contains(archive),
             "public CLI-only workflow must not masquerade as compiler bundle: {archive}"
