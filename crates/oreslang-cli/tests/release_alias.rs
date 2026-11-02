@@ -109,3 +109,48 @@ fn release_macos_runners_match_archive_architectures_and_are_not_retired() {
         );
     }
 }
+
+#[test]
+fn release_requires_protected_main_and_tag_ancestry_before_publication() {
+    let yaml = include_str!("../../../.github/workflows/release.yml").replace("\r\n", "\n");
+    let (_, publish) = yaml.split_once("\n  publish:\n").expect("publish job");
+    for required in [
+        "if [ \"$GITHUB_REF_TYPE\" != \"tag\" ]; then",
+        "gh api \"repos/$GITHUB_REPOSITORY/branches/main\" --jq '.protected'",
+        "if [ \"$protected\" != \"true\" ]; then",
+        "gh api \"repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main\" --jq '.status'",
+        "ahead|identical)",
+    ] {
+        assert!(publish.contains(required), "missing release governance gate: {required}");
+    }
+    let protection = publish.find("protected=").unwrap();
+    let ancestry = publish.find("ancestry=").unwrap();
+    let create = publish.find("gh release create").unwrap();
+    assert!(protection < ancestry && ancestry < create);
+}
+
+#[test]
+fn release_downloads_and_validates_every_archive_before_draft_publication() {
+    let yaml = include_str!("../../../.github/workflows/release.yml").replace("\r\n", "\n");
+    let (_, publish) = yaml.split_once("\n  publish:\n").expect("publish job");
+    for required in [
+        "gh run download \"$GITHUB_RUN_ID\" --repo \"$GITHUB_REPOSITORY\"",
+        "test -s \"dist/$archive\"",
+        "tar -tzf \"dist/$archive\"",
+        "unzip -Z -1 dist/oreslang-windows-x86_64.zip",
+        "gh release view \"$RELEASE_TAG\"",
+        "gh release create \"$RELEASE_TAG\"",
+        "--verify-tag --draft",
+        "gh release upload \"$RELEASE_TAG\" \"dist/$archive\"",
+        "gh release edit \"$RELEASE_TAG\"",
+        "--draft=false",
+    ] {
+        assert!(publish.contains(required), "missing immutable publication gate: {required}");
+    }
+    let download = publish.find("gh run download").unwrap();
+    let validation = publish.find("unzip -Z -1").unwrap();
+    let create = publish.find("gh release create").unwrap();
+    let upload = publish.find("gh release upload").unwrap();
+    let publish_release = publish.find("gh release edit").unwrap();
+    assert!(download < validation && validation < create && create < upload && upload < publish_release);
+}

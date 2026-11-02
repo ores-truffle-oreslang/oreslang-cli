@@ -85,15 +85,42 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "release publication requires a tag ref" >&2
+            exit 1
+          fi
+          protected="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.protected')"
+          if [ "$protected" != "true" ]; then
+            echo "release publication requires protected main" >&2
+            exit 1
+          fi
+          ancestry="$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" --jq '.status')"
+          case "$ancestry" in
+            ahead|identical) ;;
+            *) echo "tag commit is not an ancestor of main" >&2; exit 1 ;;
+          esac
           mkdir -p dist
-          for archive in \
-            oreslang-linux-x86_64.tar.gz \
-            oreslang-macos-x86_64.tar.gz \
-            oreslang-macos-aarch64.tar.gz \
+          archives=(
+            oreslang-linux-x86_64.tar.gz
+            oreslang-macos-x86_64.tar.gz
+            oreslang-macos-aarch64.tar.gz
             oreslang-windows-x86_64.zip
-          do
-            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-              --name "$archive" --dir dist
-            test -f "dist/$archive"
+          )
+          for archive in "${archives[@]}"; do
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$archive" --dir dist
+            test -s "dist/$archive"
+          done
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 4
+          for archive in "${archives[@]:0:3}"; do
+            test "$(tar -tzf "dist/$archive" | sort)" = "$(printf '%s\n' atto oreslang)"
+          done
+          test "$(unzip -Z -1 dist/oreslang-windows-x86_64.zip | sort)" = "$(printf '%s\n' atto.exe oreslang.exe)"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release already exists; refusing to replace assets" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$RELEASE_TAG" --notes "AttoLang CLI-only binaries; no native compiler bundle."
+          for archive in "${archives[@]}"; do
             gh release upload "$RELEASE_TAG" "dist/$archive" --repo "$GITHUB_REPOSITORY"
           done
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
