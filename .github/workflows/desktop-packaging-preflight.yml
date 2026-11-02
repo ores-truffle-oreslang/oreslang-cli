@@ -7,6 +7,8 @@ on:
       - ".github/workflows/desktop-packaging-preflight.yml"
       - "crates/oreslang-compiler-client/src/supervisor.rs"
       - "crates/oreslang-lsp/src/lib.rs"
+      - "crates/oreslang-cli/Cargo.toml"
+      - "crates/oreslang-cli/tests/brand_alias.rs"
   workflow_dispatch:
 
 permissions:
@@ -35,12 +37,12 @@ jobs:
         uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
         with:
           toolchain: 1.78.0
-      - name: Test and build actual public Oreslang CLI
+      - name: Test and build actual public AttoLang CLI and legacy alias
         shell: pwsh
         run: |
           cargo test --workspace --locked
           if ($LASTEXITCODE -ne 0) { throw 'Public CLI tests failed' }
-          cargo build --release --locked --bin oreslang
+          cargo build --release --locked --bins
           if ($LASTEXITCODE -ne 0) { throw 'Public CLI build failed' }
       - name: Build isolated MOCK backend and smoke installer layout
         shell: pwsh
@@ -49,8 +51,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path stage | Out-Null
           $suffix = if ("${{ runner.os }}" -eq 'Windows') { '.exe' } else { '' }
           $cli = "oreslang$suffix"
+          $atto = "atto$suffix"
           $backend = "oreslang-compiler$suffix"
           Copy-Item "target/release/$cli" "stage/$cli"
+          Copy-Item "target/release/$atto" "stage/$atto"
           @'
           use std::{env, fs, process};
           fn main() {
@@ -75,8 +79,10 @@ jobs:
           'pub routine main(): void { return; }' | Set-Content -LiteralPath valid.ores -Encoding utf8
           'not an Oreslang source' | Set-Content -LiteralPath invalid.ores -Encoding utf8
           & "./stage/$cli" check valid.ores
+          if ($LASTEXITCODE -ne 0) { throw 'Legacy CLI rejected valid fixture' }
+          & "./stage/$atto" check valid.ores
           if ($LASTEXITCODE -ne 0) { throw 'Sibling backend resolution rejected valid fixture' }
-          & "./stage/$cli" check invalid.ores
+          & "./stage/$atto" check invalid.ores
           if ($LASTEXITCODE -eq 0) { throw 'CLI failed to propagate MOCK backend rejection' }
           if ("${{ runner.os }}" -eq 'Windows') {
             Compress-Archive -Path stage/* -DestinationPath mock-layout.zip
@@ -88,7 +94,9 @@ jobs:
             tar -C extracted -xzf mock-layout.tar.gz
           }
           & "./extracted/$cli" check valid.ores
-          if ($LASTEXITCODE -ne 0) { throw 'Extracted installer layout failed sibling backend discovery' }
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted legacy CLI layout failed backend discovery' }
+          & "./extracted/$atto" check valid.ores
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted atto CLI layout failed backend discovery' }
           # A source-free contract check is NOT proof of a working real compiler.
           Write-Output 'SOURCE_FREE_PACKAGING_PREFLIGHT_PASS (MOCK BACKEND ONLY)'
       - name: Build, install and uninstall a Windows MOCK installer (never publish)
@@ -126,9 +134,14 @@ jobs:
           $uninstall = Join-Path $dir 'unins000.exe'
           if (-not (Test-Path -LiteralPath $installed)) { throw 'Installed CLI missing' }
           & $installed check valid.ores
-          if ($LASTEXITCODE -ne 0) { throw 'Installed MOCK compiler layout failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'Installed legacy CLI layout failed' }
+          $installedAtto = Join-Path $dir 'atto.exe'
+          if (-not (Test-Path -LiteralPath $installedAtto)) { throw 'Installed atto CLI missing' }
+          & $installedAtto check valid.ores
+          if ($LASTEXITCODE -ne 0) { throw 'Installed atto MOCK compiler layout failed' }
           if (-not (Test-Path -LiteralPath $uninstall)) { throw 'Uninstaller missing' }
           $proc = Start-Process -FilePath $uninstall -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru -Wait
           if ($proc.ExitCode -ne 0) { throw "Mock uninstaller returned $($proc.ExitCode)" }
-          if (Test-Path -LiteralPath $installed) { throw 'Uninstaller left the installed CLI behind' }
+          if (Test-Path -LiteralPath $installed) { throw 'Uninstaller left the legacy CLI behind' }
+          if (Test-Path -LiteralPath $installedAtto) { throw 'Uninstaller left the atto CLI behind' }
           Write-Output 'WINDOWS_MOCK_INSTALL_UNINSTALL_PASS (NOT THE REAL COMPILER)'
