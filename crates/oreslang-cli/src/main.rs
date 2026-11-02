@@ -449,7 +449,11 @@ fn parse_cli() -> Cli {
 
     let is_atto = std::env::args_os()
         .next()
-        .and_then(|name| std::path::Path::new(&name).file_stem().map(|stem| stem == OsStr::new("atto")))
+        .and_then(|name| {
+            std::path::Path::new(&name)
+                .file_stem()
+                .map(|stem| stem == OsStr::new("atto"))
+        })
         .unwrap_or(false);
     let mut command = Cli::command();
     if is_atto {
