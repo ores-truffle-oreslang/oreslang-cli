@@ -162,3 +162,35 @@ fn release_downloads_and_validates_every_archive_before_draft_publication() {
         download < validation && validation < create && create < upload && upload < publish_release
     );
 }
+
+#[test]
+fn release_tag_must_still_resolve_to_the_exact_workflow_commit() {
+    let yaml = include_str!("../../../.github/workflows/release.yml").replace("\r\n", "\n");
+    let (_, publish) = yaml.split_once("\n  publish:\n").expect("publish job");
+    assert!(publish.contains(
+        "gh api \"repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG\" --jq '.sha'"
+    ));
+    assert!(publish.contains("if [ \"$resolved_commit\" != \"$GITHUB_SHA\" ]; then"));
+    assert!(publish.contains("release tag no longer resolves to this workflow commit"));
+    assert_eq!(
+        publish.matches("          verify_tag_commit\n").count(),
+        3,
+        "tag identity must be checked after governance, before draft creation, and before publish"
+    );
+}
+
+#[test]
+fn release_tag_identity_checks_bracket_downloads_and_draft_publication() {
+    let yaml = include_str!("../../../.github/workflows/release.yml").replace("\r\n", "\n");
+    let (_, publish) = yaml.split_once("\n  publish:\n").expect("publish job");
+    let checks: Vec<_> = publish.match_indices("          verify_tag_commit\n").collect();
+    assert_eq!(checks.len(), 3);
+    let ancestry = publish.find("ancestry=").expect("main ancestry gate");
+    let download = publish.find("gh run download").expect("artifact download");
+    let create = publish.find("gh release create").expect("draft creation");
+    let upload = publish.find("gh release upload").expect("asset upload");
+    let publish_release = publish.find("gh release edit").expect("release publication");
+    assert!(ancestry < checks[0].0 && checks[0].0 < download);
+    assert!(download < checks[1].0 && checks[1].0 < create);
+    assert!(create < upload && upload < checks[2].0 && checks[2].0 < publish_release);
+}

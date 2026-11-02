@@ -99,6 +99,16 @@ jobs:
             ahead|identical) ;;
             *) echo "tag commit is not an ancestor of main" >&2; exit 1 ;;
           esac
+          verify_tag_commit() {
+            local resolved_commit
+            # GitHub's commits endpoint peels both lightweight and annotated tags.
+            resolved_commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq '.sha')"
+            if [ "$resolved_commit" != "$GITHUB_SHA" ]; then
+              echo "release tag no longer resolves to this workflow commit" >&2
+              exit 1
+            fi
+          }
+          verify_tag_commit
           mkdir -p dist
           archives=(
             oreslang-linux-x86_64.tar.gz
@@ -115,6 +125,7 @@ jobs:
             test "$(tar -tzf "dist/$archive" | sort)" = "$(printf '%s\n' atto oreslang)"
           done
           test "$(unzip -Z -1 dist/oreslang-windows-x86_64.zip | sort)" = "$(printf '%s\n' atto.exe oreslang.exe)"
+          verify_tag_commit
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release already exists; refusing to replace assets" >&2
             exit 1
@@ -123,4 +134,5 @@ jobs:
           for archive in "${archives[@]}"; do
             gh release upload "$RELEASE_TAG" "dist/$archive" --repo "$GITHUB_REPOSITORY"
           done
+          verify_tag_commit
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
