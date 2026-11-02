@@ -5,8 +5,14 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+# Both commands are built from the same implementation and share all permissions,
+# protocol behavior, compiler discovery and exit statuses.
 [[bin]]
 name = "oreslang"
+path = "src/main.rs"
+
+[[bin]]
+name = "atto"
 path = "src/main.rs"
 
 [dependencies]

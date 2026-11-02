@@ -10,7 +10,7 @@ use std::process::ExitCode;
 #[command(
     name = "oreslang",
     version,
-    about = "Oreslang developer tooling and editor frontend"
+    about = "AttoLang developer tooling and editor frontend"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -19,17 +19,17 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Parse, resolve, and type-check Oreslang without executing guest code.
+    /// Parse, resolve, and type-check AttoLang without executing guest code.
     Check(CheckArgs),
-    /// Execute an Oreslang program with explicit host-I/O permissions.
+    /// Execute an AttoLang program with explicit host-I/O permissions.
     Run(RunArgs),
-    /// Execute native Oreslang test suites with race or fuzz orchestration.
+    /// Execute native AttoLang test suites with race or fuzz orchestration.
     Test(TestArgs),
-    /// Run the Oreslang language server.
+    /// Run the AttoLang language server.
     Lsp(LspArgs),
     /// Show the compiler backend that the CLI will use.
     Doctor(DoctorArgs),
-    /// Print the Oreslang CLI version.
+    /// Print the AttoLang CLI version.
     Version,
 }
 
@@ -441,8 +441,26 @@ struct JsonLineDiagnostic<'a> {
     diagnostic: &'a Diagnostic,
 }
 
+// One parser for both binary names. Only the help/usage display name changes;
+// the compiler transport, permissions and diagnostic protocol are shared.
+fn parse_cli() -> Cli {
+    use clap::{CommandFactory, FromArgMatches};
+    use std::ffi::OsStr;
+
+    let is_atto = std::env::args_os()
+        .next()
+        .and_then(|name| std::path::Path::new(&name).file_stem().map(|stem| stem == OsStr::new("atto")))
+        .unwrap_or(false);
+    let mut command = Cli::command();
+    if is_atto {
+        command = command.name("atto");
+    }
+    let matches = command.get_matches();
+    Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit())
+}
+
 fn main() -> ExitCode {
-    match Cli::parse().command {
+    match parse_cli().command {
         Command::Check(args) => check(args),
         Command::Run(args) => run(args),
         Command::Test(args) => test(args),

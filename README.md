@@ -2,14 +2,31 @@
 
 Canonical developer-tooling and IDE frontend for **AttoLang**.
 
-The repository and executable retain their historical `oreslang` names for compatibility. This is a public-product naming update, **not** a rename of the CLI, diagnostic protocol, package identifiers or compiler backend.
+The repository and legacy `oreslang` executable remain unchanged for compatibility.
+A new `atto` executable is built from **the same source file**. This is not
+a second parser, compiler, privilege boundary or diagnostic protocol.
 
 
-The public executable is:
+The public executables are:
 
 ```text
-oreslang
+atto        # preferred AttoLang command
+oreslang    # retained compatibility command
 ```
+
+Both share subcommands, permission gates, backend selection, diagnostic JSON,
+and exit codes. Only the executable name shown in help/usage differs.
+
+```sh
+atto --help
+atto --version
+atto check app.atto
+atto run app.atto
+oreslang check app.ores  # historical command and extension still forwarded
+```
+
+The CLI forwards source paths unchanged; `.atto` admission and compilation
+remain the chosen backend's responsibility, not proof of feature parity.
 
 This repository is **not** `ORESoftware/ores-cli` and editor integrations must
 not depend on that unrelated tool.
