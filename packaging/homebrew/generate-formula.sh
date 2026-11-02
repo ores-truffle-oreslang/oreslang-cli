@@ -28,7 +28,7 @@ cat > "$destination" <<RUBY
 # Generated after an approved binary release. Never substitute private CI
 # artifact URLs or unverified compiler checksums.
 class Oreslang < Formula
-  desc "Oreslang compiler and developer CLI"
+  desc "AttoLang compiler and developer CLI"
   homepage "https://github.com/ores-truffle-oreslang/oreslang-cli"
   version "${version}"
   depends_on :macos
@@ -44,11 +44,12 @@ class Oreslang < Formula
   end
 
   def install
-    bin.install "oreslang", "oreslang-compiler"
+    bin.install "atto", "oreslang", "oreslang-compiler"
     prefix.install "provenance.json"
   end
 
   test do
+    assert_match "atto", shell_output("#{bin}/atto version")
     assert_match "oreslang", shell_output("#{bin}/oreslang version")
     assert_predicate bin/"oreslang-compiler", :executable?
     (testpath/"hello.ores").write "pub routine main(): void { return; }\n"
