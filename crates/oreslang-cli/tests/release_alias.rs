@@ -103,6 +103,9 @@ fn release_macos_runners_match_archive_architectures_and_are_not_retired() {
     assert!(yaml.contains("os: macos-15-intel\n            target: x86_64-apple-darwin"));
     assert!(yaml.contains("os: macos-15\n            target: aarch64-apple-darwin"));
     for retired in ["macos-13", "macos-13-large", "macos-13-xlarge"] {
-        assert!(!yaml.contains(&format!("os: {retired}\n")), "retired macOS runner: {retired}");
+        assert!(
+            !yaml.contains(&format!("os: {retired}\n")),
+            "retired macOS runner: {retired}"
+        );
     }
 }
