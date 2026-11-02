@@ -139,8 +139,11 @@ fn release_downloads_and_validates_every_archive_before_draft_publication() {
     for required in [
         "gh run download \"$GITHUB_RUN_ID\" --repo \"$GITHUB_REPOSITORY\"",
         "test -s \"dist/$archive\"",
-        "tar -tzf \"dist/$archive\"",
-        "unzip -Z -1 dist/oreslang-windows-x86_64.zip",
+        "python3 - \"$PWD/dist\" <<'PY'",
+        "tarfile.open(root / archive, \"r:gz\")",
+        "zipfile.ZipFile(root / archive)",
+        "member.isfile()",
+        "stat.S_IFMT(mode)",
         "gh release view \"$RELEASE_TAG\"",
         "gh release create \"$RELEASE_TAG\"",
         "--verify-tag --draft",
@@ -154,7 +157,7 @@ fn release_downloads_and_validates_every_archive_before_draft_publication() {
         );
     }
     let download = publish.find("gh run download").unwrap();
-    let validation = publish.find("unzip -Z -1").unwrap();
+    let validation = publish.find("python3 - \"$PWD/dist\" <<'PY'").unwrap();
     let create = publish.find("gh release create").unwrap();
     let upload = publish.find("gh release upload").unwrap();
     let publish_release = publish.find("gh release edit").unwrap();
@@ -209,4 +212,29 @@ fn release_publisher_serializes_same_tag_without_cancelling_active_attempt() {
     ));
     assert!(!job_header.contains("cancel-in-progress: true"));
     assert!(job_header.contains("needs: build"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn release_archive_validation_executes_negative_fixtures() {
+    let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = std::process::Command::new("python3")
+        .args([
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_release_archive_validation.py",
+        ])
+        .current_dir(repository_root)
+        .output()
+        .expect("python3 is required for Linux release-archive security regressions");
+    assert!(
+        output.status.success(),
+        "archive security regressions failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

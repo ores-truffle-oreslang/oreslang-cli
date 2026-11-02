@@ -125,10 +125,51 @@ jobs:
             test -s "dist/$archive"
           done
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 4
-          for archive in "${archives[@]:0:3}"; do
-            test "$(tar -tzf "dist/$archive" | sort)" = "$(printf '%s\n' atto oreslang)"
-          done
-          test "$(unzip -Z -1 dist/oreslang-windows-x86_64.zip | sort)" = "$(printf '%s\n' atto.exe oreslang.exe)"
+          python3 - "$PWD/dist" <<'PY'
+          import pathlib
+          import stat
+          import sys
+          import tarfile
+          import zipfile
+          
+          root = pathlib.Path(sys.argv[1])
+          limit = 256 * 1024 * 1024
+          unix_archives = (
+              "oreslang-linux-x86_64.tar.gz",
+              "oreslang-macos-x86_64.tar.gz",
+              "oreslang-macos-aarch64.tar.gz",
+          )
+          for archive in unix_archives:
+              with tarfile.open(root / archive, "r:gz") as tar:
+                  members = tar.getmembers()
+                  if sorted(member.name for member in members) != ["atto", "oreslang"]:
+                      raise ValueError(f"{archive}: unexpected, missing or duplicate members")
+                  for member in members:
+                      if not member.isfile() or not 0 < member.size <= limit:
+                          raise ValueError(f"{archive}: unsafe member type or size: {member.name}")
+                      stream = tar.extractfile(member)
+                      if stream is None:
+                          raise ValueError(f"{archive}: unreadable member: {member.name}")
+                      with stream:
+                          while stream.read(1024 * 1024):
+                              pass
+          
+          archive = "oreslang-windows-x86_64.zip"
+          with zipfile.ZipFile(root / archive) as zipped:
+              members = zipped.infolist()
+              if sorted(member.filename for member in members) != ["atto.exe", "oreslang.exe"]:
+                  raise ValueError(f"{archive}: unexpected, missing or duplicate members")
+              for member in members:
+                  mode = (member.external_attr >> 16) & 0xFFFF
+                  kind = stat.S_IFMT(mode)
+                  if member.is_dir() or (member.create_system == 3 and kind not in (0, stat.S_IFREG)):
+                      raise ValueError(f"{archive}: unsafe member type: {member.filename}")
+                  if not 0 < member.file_size <= limit:
+                      raise ValueError(f"{archive}: unsafe member size: {member.filename}")
+                  with zipped.open(member) as stream:
+                      while stream.read(1024 * 1024):
+                          pass
+          PY
           verify_tag_commit
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release already exists; refusing to replace assets" >&2
