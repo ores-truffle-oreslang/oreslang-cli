@@ -619,7 +619,7 @@ fn doctor(args: DoctorArgs) -> ExitCode {
     println!("compiler backend: {}", command.display());
     println!("public editor command: atto check <file.atto> (legacy: oreslang check <file.ores>)");
     println!("runtime command: atto run <file.atto> (legacy: oreslang run <file.ores>)");
-    println!("language server: oreslang lsp --stdio");
+    println!("language server: atto lsp --stdio (legacy: oreslang lsp --stdio)");
     println!("permissions: Deno-style --allow-*/--deny-*; runtime enforcement is always active");
     println!("build profiles: --release | --strict-aot | --hard-rt; --freestanding is orthogonal");
     println!("runtime reflection: forbidden by the build-profile v1 contract");

@@ -30,6 +30,10 @@ jobs:
           cargo run --locked --bin atto -- version
           cargo run --locked --bin oreslang -- doctor
           cargo run --locked --bin atto -- doctor
+          for binary in atto oreslang; do
+            doctor_output="$(cargo run --locked --bin "$binary" -- doctor)"
+            printf '%s\n' "$doctor_output" | grep -Fqx 'language server: atto lsp --stdio (legacy: oreslang lsp --stdio)'
+          done
           cargo test --locked -p oreslang-cli check_accepts_canonical_atto_source_path
           cargo test --locked -p oreslang-cli run_accepts_canonical_atto_source_path
           cargo test --locked -p oreslang-cli source_extensions_are_independent_of_cli_alias
