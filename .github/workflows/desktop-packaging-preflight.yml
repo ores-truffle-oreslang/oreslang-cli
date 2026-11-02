@@ -122,6 +122,7 @@ jobs:
           SolidCompression=yes
           [Files]
           Source: "stage\oreslang.exe"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "stage\atto.exe"; DestDir: "{app}"; Flags: ignoreversion
           Source: "stage\oreslang-compiler.exe"; DestDir: "{app}"; Flags: ignoreversion
           '@ | Set-Content -LiteralPath preflight.iss -Encoding utf8
           & $iscc preflight.iss
