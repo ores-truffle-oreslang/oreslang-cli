@@ -44,8 +44,9 @@ def make_tar(path, entries):
     with tarfile.open(path, "w:gz") as tar:
         for name, payload, kind in entries:
             member = tarfile.TarInfo(name)
-            if kind == "file" and payload == b"binary":
+            if kind in ("file", "noexec", "setuid") and payload == b"binary":
                 payload = synthetic_executable(path.name)
+            member.mode = {"noexec": 0o644, "setuid": 0o4755}.get(kind, 0o755)
             if kind == "symlink":
                 member.type = tarfile.SYMTYPE
                 member.linkname = "oreslang"
@@ -85,6 +86,14 @@ class ReleaseArchiveValidation(unittest.TestCase):
 
     def test_tar_symlink_rejected(self):
         make_tar(self.root / TARS[0], [("atto", b"binary", "file"), ("oreslang", b"", "symlink")])
+        self.verify(False)
+
+    def test_tar_non_executable_binary_rejected(self):
+        make_tar(self.root / TARS[0], [("atto", b"binary", "noexec"), ("oreslang", b"binary", "file")])
+        self.verify(False)
+
+    def test_tar_setuid_binary_rejected(self):
+        make_tar(self.root / TARS[1], [("atto", b"binary", "setuid"), ("oreslang", b"binary", "file")])
         self.verify(False)
 
     def test_tar_duplicate_rejected(self):
