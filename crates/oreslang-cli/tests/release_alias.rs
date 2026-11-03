@@ -133,7 +133,7 @@ fn release_requires_protected_main_and_tag_ancestry_before_publication() {
 }
 
 #[test]
-fn release_downloads_and_validates_every_archive_before_draft_publication() {
+fn release_downloads_and_validates_every_archive_before_draft_staging() {
     let yaml = include_str!("../../../.github/workflows/release.yml").replace("\r\n", "\n");
     let (_, publish) = yaml.split_once("\n  publish:\n").expect("publish job");
     for required in [
@@ -148,8 +148,7 @@ fn release_downloads_and_validates_every_archive_before_draft_publication() {
         "gh release create \"$RELEASE_TAG\"",
         "--verify-tag --draft",
         "gh release upload \"$RELEASE_TAG\" \"dist/$archive\"",
-        "gh release edit \"$RELEASE_TAG\"",
-        "--draft=false",
+        "CLI_ONLY_DRAFT_STAGED_NOT_PUBLISHED",
     ] {
         assert!(
             publish.contains(required),
@@ -160,10 +159,12 @@ fn release_downloads_and_validates_every_archive_before_draft_publication() {
     let validation = publish.find("python3 - \"$PWD/dist\" <<'PY'").unwrap();
     let create = publish.find("gh release create").unwrap();
     let upload = publish.find("gh release upload").unwrap();
-    let publish_release = publish.find("gh release edit").unwrap();
+    assert!(download < validation && validation < create && create < upload);
     assert!(
-        download < validation && validation < create && create < upload && upload < publish_release
+        !publish.contains("gh release edit"),
+        "tag-triggered workflow must not automatically publish the draft"
     );
+    assert!(!publish.contains("--draft=false"));
 }
 
 #[test]
@@ -178,12 +179,12 @@ fn release_tag_must_still_resolve_to_the_exact_workflow_commit() {
     assert_eq!(
         publish.matches("          verify_tag_commit\n").count(),
         3,
-        "tag identity must be checked after governance, before draft creation, and before publish"
+        "tag identity must be checked after governance, before draft creation, and after upload"
     );
 }
 
 #[test]
-fn release_tag_identity_checks_bracket_downloads_and_draft_publication() {
+fn release_tag_identity_checks_bracket_downloads_and_draft_staging() {
     let yaml = include_str!("../../../.github/workflows/release.yml").replace("\r\n", "\n");
     let (_, publish) = yaml.split_once("\n  publish:\n").expect("publish job");
     let checks: Vec<_> = publish
@@ -194,12 +195,11 @@ fn release_tag_identity_checks_bracket_downloads_and_draft_publication() {
     let download = publish.find("gh run download").expect("artifact download");
     let create = publish.find("gh release create").expect("draft creation");
     let upload = publish.find("gh release upload").expect("asset upload");
-    let publish_release = publish
-        .find("gh release edit")
-        .expect("release publication");
     assert!(ancestry < checks[0].0 && checks[0].0 < download);
     assert!(download < checks[1].0 && checks[1].0 < create);
-    assert!(create < upload && upload < checks[2].0 && checks[2].0 < publish_release);
+    assert!(create < upload && upload < checks[2].0);
+    assert!(!publish.contains("gh release edit"));
+    assert!(!publish.contains("--draft=false"));
 }
 
 #[test]

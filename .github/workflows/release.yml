@@ -220,4 +220,6 @@ jobs:
             gh release upload "$RELEASE_TAG" "dist/$archive" --repo "$GITHUB_REPOSITORY"
           done
           verify_tag_commit
-          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          # An independently approved release operator must publish this draft separately.
+          # A tag push alone is not authorization to distribute binaries.
+          echo "CLI_ONLY_DRAFT_STAGED_NOT_PUBLISHED"

@@ -13,6 +13,12 @@ containing `atto` and `oreslang`. Those archives do not contain
 substituted for the approved combined compiler bundles required by Homebrew
 or a desktop installer. A source-free MOCK backend is not a native compiler.
 
+The tag-triggered public CLI workflow **only stages a draft release** after
+validating its CLI-only archives. It must not publish the draft automatically.
+Publication requires separate, independently reviewed binary-distribution
+approval and an authorized manual release action. This is distinct from merging
+the CLI packaging PR or approving real native compiler bundles.
+
 Both launchers resolve a sibling compiler before searching `PATH`. A
 successful `atto version` or `oreslang version` is **not** a compiler test:
 acceptance must include `atto check path/to/valid.atto`, the compatible
