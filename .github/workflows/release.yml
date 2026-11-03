@@ -178,7 +178,7 @@ jobs:
                   for member in members:
                       if not member.isfile() or not 0 < member.size <= limit:
                           raise ValueError(f"{archive}: unsafe member type or size: {member.name}")
-                      if (member.mode & 0o111) != 0o111 or member.mode & 0o7000:
+                      if (member.mode & 0o111) != 0o111 or member.mode & 0o7000 or member.mode & 0o022:
                           raise ValueError(f"{archive}: unsafe executable mode: {member.name}")
                       stream = tar.extractfile(member)
                       if stream is None:
