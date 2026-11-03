@@ -15,8 +15,9 @@ or a desktop installer. A source-free MOCK backend is not a native compiler.
 
 Both launchers resolve a sibling compiler before searching `PATH`. A
 successful `atto version` or `oreslang version` is **not** a compiler test:
-acceptance must include `atto check path/to/valid.ores`, the compatible
-`oreslang check`, invalid-file diagnostic/exit checks, and `atto run` of a
+acceptance must include `atto check path/to/valid.atto`, the compatible
+`oreslang check` (including legacy `.ores`), invalid-file diagnostic/exit checks,
+and `atto run` of a
 known-safe fixture using the real compiler.
 
 ## Private build candidates
@@ -87,7 +88,8 @@ through an **explicit-URL** Homebrew tap:
 brew tap ores-truffle-oreslang/cli https://github.com/ores-truffle-oreslang/oreslang-cli
 brew install ores-truffle-oreslang/cli/oreslang
 oreslang doctor
-oreslang check hello.ores
+atto check hello.atto
+# Legacy compatibility: oreslang check hello.ores
 ```
 
 This is a *future command*, not a currently available install: the formula and

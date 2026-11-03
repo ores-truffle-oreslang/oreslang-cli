@@ -238,3 +238,20 @@ fn release_archive_validation_executes_negative_fixtures() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn homebrew_generated_formula_smokes_canonical_atto_and_legacy_sources() {
+    let formula = include_str!("../../../packaging/homebrew/generate-formula.sh");
+    let ci = include_str!("../../../.github/workflows/ci.yml");
+    for required in [
+        r#"(testpath/"hello.atto").write"#,
+        r#"system bin/"atto", "check", testpath/"hello.atto""#,
+        r#"system bin/"oreslang", "check", testpath/"hello.atto""#,
+        r#"system bin/"oreslang", "check", testpath/"hello.ores""#,
+    ] {
+        assert!(formula.contains(required), "missing Homebrew check: {required}");
+        if required.starts_with("system ") {
+            assert!(ci.contains(required), "missing generated-formula CI gate: {required}");
+        }
+    }
+}

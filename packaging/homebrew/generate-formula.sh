@@ -52,6 +52,9 @@ class Oreslang < Formula
     assert_match "atto", shell_output("#{bin}/atto version")
     assert_match "oreslang", shell_output("#{bin}/oreslang version")
     assert_predicate bin/"oreslang-compiler", :executable?
+    (testpath/"hello.atto").write "pub routine main(): void { return; }\n"
+    system bin/"atto", "check", testpath/"hello.atto"
+    system bin/"oreslang", "check", testpath/"hello.atto"
     (testpath/"hello.ores").write "pub routine main(): void { return; }\n"
     system bin/"oreslang", "check", testpath/"hello.ores"
   end
