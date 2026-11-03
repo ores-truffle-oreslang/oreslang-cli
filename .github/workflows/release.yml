@@ -143,6 +143,7 @@ jobs:
                   valid = (
                       len(header) >= 64 and header[:4] == b"\x7fELF"
                       and header[4:6] == b"\x02\x01"
+                      and struct.unpack_from("<H", header, 16)[0] in (2, 3)  # ET_EXEC or PIE ET_DYN
                       and struct.unpack_from("<H", header, 18)[0] == 62
                   )
               elif archive in ("oreslang-macos-x86_64.tar.gz", "oreslang-macos-aarch64.tar.gz"):
@@ -150,15 +151,19 @@ jobs:
                   valid = (
                       len(header) >= 32 and header[:4] == b"\xcf\xfa\xed\xfe"
                       and struct.unpack_from("<I", header, 4)[0] == cpu
+                      and struct.unpack_from("<I", header, 12)[0] == 2  # MH_EXECUTE
                   )
               elif archive == "oreslang-windows-x86_64.zip":
                   valid = False
                   if len(header) >= 64 and header[:2] == b"MZ":
                       offset = struct.unpack_from("<I", header, 0x3c)[0]
                       valid = (
-                          64 <= offset and offset + 6 <= len(header)
+                          64 <= offset and offset + 26 <= len(header)
                           and header[offset:offset + 4] == b"PE\x00\x00"
                           and struct.unpack_from("<H", header, offset + 4)[0] == 0x8664
+                          and struct.unpack_from("<H", header, offset + 20)[0] >= 0x70
+                          and (struct.unpack_from("<H", header, offset + 22)[0] & 0x0002) != 0
+                          and struct.unpack_from("<H", header, offset + 24)[0] == 0x020b  # PE32+
                       )
               else:
                   raise ValueError(f"unknown release target: {archive}")

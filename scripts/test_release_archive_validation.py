@@ -25,16 +25,21 @@ def synthetic_executable(archive):
     if archive == TARS[0]:
         header[:4] = b"\x7fELF"
         header[4:6] = b"\x02\x01"
+        header[16:18] = (3).to_bytes(2, "little")  # PIE ET_DYN
         header[18:20] = (62).to_bytes(2, "little")
     elif archive in TARS[1:]:
         header[:4] = b"\xcf\xfa\xed\xfe"
         cpu = 0x01000007 if archive == TARS[1] else 0x0100000c
         header[4:8] = cpu.to_bytes(4, "little")
+        header[12:16] = (2).to_bytes(4, "little")  # MH_EXECUTE
     elif archive == ZIP:
         header[:2] = b"MZ"
         header[0x3c:0x40] = (128).to_bytes(4, "little")
         header[128:132] = b"PE\x00\x00"
         header[132:134] = (0x8664).to_bytes(2, "little")
+        header[148:150] = (0xF0).to_bytes(2, "little")  # Optional header size
+        header[150:152] = (0x0002).to_bytes(2, "little")  # Executable image
+        header[152:154] = (0x020b).to_bytes(2, "little")  # PE32+
     else:
         raise ValueError(archive)
     return bytes(header)
@@ -151,6 +156,30 @@ class ReleaseArchiveValidation(unittest.TestCase):
     def test_windows_wrong_machine_rejected(self):
         wrong = bytearray(synthetic_executable(ZIP))
         wrong[132:134] = (0xAA64).to_bytes(2, "little")  # ARM64, not AMD64
+        make_zip(self.root / ZIP, [("atto.exe", bytes(wrong), "file"), ("oreslang.exe", b"binary", "file")])
+        self.verify(False)
+
+    def test_linux_rel_object_rejected(self):
+        wrong = bytearray(synthetic_executable(TARS[0]))
+        wrong[16:18] = (1).to_bytes(2, "little")  # ET_REL object, not executable
+        make_tar(self.root / TARS[0], [("atto", bytes(wrong), "file"), ("oreslang", b"binary", "file")])
+        self.verify(False)
+
+    def test_macos_mh_object_rejected(self):
+        wrong = bytearray(synthetic_executable(TARS[1]))
+        wrong[12:16] = (1).to_bytes(4, "little")  # MH_OBJECT, not MH_EXECUTE
+        make_tar(self.root / TARS[1], [("atto", bytes(wrong), "file"), ("oreslang", b"binary", "file")])
+        self.verify(False)
+
+    def test_windows_non_executable_coff_rejected(self):
+        wrong = bytearray(synthetic_executable(ZIP))
+        wrong[150:152] = (0).to_bytes(2, "little")  # no IMAGE_FILE_EXECUTABLE_IMAGE
+        make_zip(self.root / ZIP, [("atto.exe", bytes(wrong), "file"), ("oreslang.exe", b"binary", "file")])
+        self.verify(False)
+
+    def test_windows_pe32_instead_of_pe32plus_rejected(self):
+        wrong = bytearray(synthetic_executable(ZIP))
+        wrong[152:154] = (0x010b).to_bytes(2, "little")  # PE32, not PE32+
         make_zip(self.root / ZIP, [("atto.exe", bytes(wrong), "file"), ("oreslang.exe", b"binary", "file")])
         self.verify(False)
 
