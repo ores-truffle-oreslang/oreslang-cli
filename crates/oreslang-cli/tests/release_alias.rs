@@ -249,9 +249,15 @@ fn homebrew_generated_formula_smokes_canonical_atto_and_legacy_sources() {
         r#"system bin/"oreslang", "check", testpath/"hello.atto""#,
         r#"system bin/"oreslang", "check", testpath/"hello.ores""#,
     ] {
-        assert!(formula.contains(required), "missing Homebrew check: {required}");
+        assert!(
+            formula.contains(required),
+            "missing Homebrew check: {required}"
+        );
         if required.starts_with("system ") {
-            assert!(ci.contains(required), "missing generated-formula CI gate: {required}");
+            assert!(
+                ci.contains(required),
+                "missing generated-formula CI gate: {required}"
+            );
         }
     }
 }
