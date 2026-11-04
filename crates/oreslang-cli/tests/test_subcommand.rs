@@ -12,7 +12,10 @@ fn test_race_subcommand_dispatches_to_external_runner_without_fake_success() {
         .expect("oreslang executable exists");
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("failed to start AttoLang test executable"), "{stderr}");
+    assert!(
+        stderr.contains("failed to start AttoLang test executable"),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -35,7 +38,10 @@ fn test_fuzz_subcommand_dispatches_to_external_runner_without_fake_success() {
         .expect("oreslang executable exists");
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("failed to start AttoLang test executable"), "{stderr}");
+    assert!(
+        stderr.contains("failed to start AttoLang test executable"),
+        "{stderr}"
+    );
 }
 
 #[cfg(unix)]
@@ -75,7 +81,6 @@ fn test_subcommand_forwards_all_flags_and_propagates_runner_exit() {
     );
 }
 
-
 #[test]
 fn canonical_atto_dispatch_fails_closed_when_explicit_runner_missing() {
     let output = Command::new(env!("CARGO_BIN_EXE_atto"))
@@ -94,7 +99,9 @@ fn atto_test_forwards_fuzz_args_to_canonical_runner_and_preserves_exit_code() {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     let dir = std::env::temp_dir().join(format!(
-        "atto-test-dispatch-{}-{:?}", std::process::id(), std::thread::current().id()
+        "atto-test-dispatch-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
     ));
     fs::create_dir_all(&dir).unwrap();
     let runner = dir.join("test-runner");
