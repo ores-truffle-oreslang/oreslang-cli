@@ -12,7 +12,7 @@ fn test_race_subcommand_dispatches_to_external_runner_without_fake_success() {
         .expect("oreslang executable exists");
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("failed to start oreslang-test"), "{stderr}");
+    assert!(stderr.contains("failed to start AttoLang test executable"), "{stderr}");
 }
 
 #[test]
@@ -35,7 +35,7 @@ fn test_fuzz_subcommand_dispatches_to_external_runner_without_fake_success() {
         .expect("oreslang executable exists");
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("failed to start oreslang-test"), "{stderr}");
+    assert!(stderr.contains("failed to start AttoLang test executable"), "{stderr}");
 }
 
 #[cfg(unix)]
@@ -72,5 +72,46 @@ fn test_subcommand_forwards_all_flags_and_propagates_runner_exit() {
     assert_eq!(
         stdout,
         "ARG:--race\nARG:fixture.ores\nARG:--runs\nARG:3\nARG:--seed\nARG:42\n"
+    );
+}
+
+
+#[test]
+fn canonical_atto_dispatch_fails_closed_when_explicit_runner_missing() {
+    let output = Command::new(env!("CARGO_BIN_EXE_atto"))
+        .args(["test", "--race"])
+        .env("ATTO_TEST_CLI", "/deliberately-unavailable-atto-test")
+        .env("ORESLANG_TEST_CLI", "/legacy-override-must-not-win")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AttoLang test executable"));
+}
+
+#[cfg(unix)]
+#[test]
+fn atto_test_forwards_fuzz_args_to_canonical_runner_and_preserves_exit_code() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!(
+        "atto-test-dispatch-{}-{:?}", std::process::id(), std::thread::current().id()
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    let runner = dir.join("test-runner");
+    fs::write(&runner, "#!/bin/sh\nprintf 'ARG:%s\\n' \"$@\"\nexit 7\n").unwrap();
+    let mut perms = fs::metadata(&runner).unwrap().permissions();
+    perms.set_mode(0o700);
+    fs::set_permissions(&runner, perms).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_atto"))
+        .args(["test", "--fuzz", "--cases", "5", "--seed", "42"])
+        .env("ATTO_TEST_CLI", &runner)
+        .env("ORESLANG_TEST_CLI", "/legacy-must-not-win")
+        .output()
+        .unwrap();
+    let _ = fs::remove_dir_all(dir);
+    assert_eq!(output.status.code(), Some(7), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "ARG:--fuzz\nARG:--cases\nARG:5\nARG:--seed\nARG:42\n"
     );
 }

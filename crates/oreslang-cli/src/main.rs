@@ -566,28 +566,44 @@ fn run(args: RunArgs) -> ExitCode {
 }
 
 fn test(args: TestArgs) -> ExitCode {
-    let executable =
-        std::env::var_os("ORESLANG_TEST_CLI").unwrap_or_else(|| OsString::from("oreslang-test"));
-    let mut command = std::process::Command::new(&executable);
-    command.args(&args.args);
-    // Default guest runner resolves to *this* oreslang binary so local
-    // development works without installing a second oreslang on PATH.
-    if std::env::var_os("ORESLANG_TEST_RUNNER").is_none() {
-        if let Ok(current) = std::env::current_exe() {
-            command.env("ORESLANG_TEST_RUNNER", current);
+    // One test engine, not a second CLI parser. Canonical override wins;
+    // legacy override remains accepted. Never fall back from a broken explicit
+    // path: doing so could silently execute a different test implementation.
+    let configured = std::env::var_os("ATTO_TEST_CLI")
+        .or_else(|| std::env::var_os("ORESLANG_TEST_CLI"));
+    let executables = configured.clone().map_or_else(
+        || vec![OsString::from("atto-test"), OsString::from("oreslang-test")],
+        |path| vec![path],
+    );
+    for executable in executables {
+        let mut command = std::process::Command::new(&executable);
+        command.args(&args.args);
+        if std::env::var_os("ORESLANG_TEST_RUNNER").is_none() {
+            if let Ok(current) = std::env::current_exe() {
+                command.env("ORESLANG_TEST_RUNNER", current);
+            }
+        }
+        match command.status() {
+            Ok(status) if status.success() => return ExitCode::SUCCESS,
+            Ok(status) => {
+                return ExitCode::from(status.code().unwrap_or(1).clamp(1, u8::MAX as i32) as u8);
+            }
+            Err(error)
+                if configured.is_none() && error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                continue;
+            }
+            Err(error) => {
+                eprintln!(
+                    "atto test: failed to start AttoLang test executable {:?}: {error}; install atto-test or set ATTO_TEST_CLI (legacy: ORESLANG_TEST_CLI)",
+                    executable
+                );
+                return ExitCode::from(2);
+            }
         }
     }
-    match command.status() {
-        Ok(status) if status.success() => ExitCode::SUCCESS,
-        Ok(status) => ExitCode::from(status.code().unwrap_or(1).clamp(1, u8::MAX as i32) as u8),
-        Err(error) => {
-            eprintln!(
-                "oreslang test: failed to start oreslang-test executable {:?}: {error};                  install the oreslang-test-cli package or set ORESLANG_TEST_CLI",
-                executable
-            );
-            ExitCode::from(2)
-        }
-    }
+    eprintln!("atto test: no atto-test or oreslang-test executable found on PATH; install atto-test or set ATTO_TEST_CLI");
+    ExitCode::from(2)
 }
 
 fn lsp(args: LspArgs) -> ExitCode {

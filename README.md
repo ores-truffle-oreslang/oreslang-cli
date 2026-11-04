@@ -204,30 +204,32 @@ remain in `oreslang-source.java`.
 A [repository-specific compiler compatibility matrix](docs/compiler-pr-sync.md) tracks the 10 newest `oreslang-source.java` PRs. They remain unmerged upstream; existing demos, build flags, and stable compiler references stay unchanged pending exact-SHA conformance testing.
 
 
-## Race and fuzz testing (staged integration)
+## Test CLI: `atto test` (race, fuzz and sanitizers)
 
-The `oreslang test` subcommand delegates to a separately installed
-`oreslang-test` executable maintained in the private
-`ores-truffle-oreslang/oreslang-test.cli` repository.
-The dispatcher does not implement instrumentation or invent test results.
+The public `atto test` subcommand delegates directly to the Rust
+`atto-test` runner in `ores-truffle-oreslang/oreslang-test.cli`.
+The legacy `oreslang test` / `oreslang-test` names remain compatible.
+Both executable names forward the exact test arguments and exit code without
+inventing compiler or sanitizer results.
 
 ```sh
-oreslang test --race suite.ores --runs 20 --seed 123
-oreslang test --fuzz suite.ores --runs 1000 --seed 123 --corpus testdata/fuzz
+atto test --fuzz --cases 1000 --seed 123
+atto test --race --trace tests/traces/ordered.jsonl  # offline trace analysis
+atto test --race                                      # inconclusive until trusted runtime trace support
 ```
 
-Install `oreslang-test-cli` alongside the Rust CLI and set
-`ORESLANG_TEST_CLI=/path/to/oreslang-test` if it is not on PATH. When the
-wrapper runs, it supplies `ORESLANG_TEST_RUNNER` as the current oreslang
-executable; `--runner` on the test command can override that. Runner
-exit codes are propagated intact.
+The dispatcher selects `ATTO_TEST_CLI=/absolute/path/to/atto-test` first,
+then the legacy `ORESLANG_TEST_CLI` override. With neither configured it
+tries `atto-test` and then `oreslang-test` on PATH. **A failed explicit
+override never silently falls back.** Native test compiler selection is still
+controlled by the test runner's `ORESLANG_BIN` (compatibility variable).
 
-`--race` **fails inconclusive** unless the backend supplies real,
-versioned memory and logical-race observations. `--fuzz` is currently
-replayable black-box fuzzing only, without coverage feedback. Both modes
-consume the native `ORES_TEST|SUMMARY` protocol, and neither replaces
-`stdlib/testing.ores`.
-
+`--fuzz` mutates stdin for an explicitly configured executable in
+`atto-test.toml`, not automatically compiled AttoLang source. Sanitizer
+reports in child output are observable findings, but cannot establish whether
+ASan/UBSan/TSan instrumentation actually covered guest code.
+`--race --trace` is an offline happens-before analysis, not live TSan/guest
+scheduler validation. Uninstrumented `--race` exits 2, never a fake pass.
 
 ## Build profiles
 
