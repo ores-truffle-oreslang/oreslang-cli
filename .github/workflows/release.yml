@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -18,11 +18,11 @@ jobs:
             target: x86_64-unknown-linux-gnu
             archive: oreslang-linux-x86_64.tar.gz
             binary: oreslang
-          - os: macos-13
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             archive: oreslang-macos-x86_64.tar.gz
             binary: oreslang
-          - os: macos-14
+          - os: macos-15
             target: aarch64-apple-darwin
             archive: oreslang-macos-aarch64.tar.gz
             binary: oreslang
@@ -71,8 +71,155 @@ jobs:
           name: ${{ matrix.archive }}
           path: ${{ matrix.archive }}
 
-      - name: Upload GitHub release asset
+  publish:
+    # Serialize same-tag publications; a second attempt must never cancel the first.
+    concurrency:
+      group: attolang-cli-release-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: false
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Publish immutable release assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.ref_name }}" "${{ matrix.archive }}" --clobber
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "release publication requires a tag ref" >&2
+            exit 1
+          fi
+          protected="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.protected')"
+          if [ "$protected" != "true" ]; then
+            echo "release publication requires protected main" >&2
+            exit 1
+          fi
+          ancestry="$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" --jq '.status')"
+          case "$ancestry" in
+            ahead|identical) ;;
+            *) echo "tag commit is not an ancestor of main" >&2; exit 1 ;;
+          esac
+          verify_tag_commit() {
+            local resolved_commit
+            # GitHub's commits endpoint peels both lightweight and annotated tags.
+            resolved_commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq '.sha')"
+            if [ "$resolved_commit" != "$GITHUB_SHA" ]; then
+              echo "release tag no longer resolves to this workflow commit" >&2
+              exit 1
+            fi
+          }
+          verify_tag_commit
+          mkdir -p dist
+          archives=(
+            oreslang-linux-x86_64.tar.gz
+            oreslang-macos-x86_64.tar.gz
+            oreslang-macos-aarch64.tar.gz
+            oreslang-windows-x86_64.zip
+          )
+          for archive in "${archives[@]}"; do
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$archive" --dir dist
+            test -s "dist/$archive"
+          done
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 4
+          python3 - "$PWD/dist" <<'PY'
+          import pathlib
+          import stat
+          import struct
+          import sys
+          import tarfile
+          import zipfile
+          
+          root = pathlib.Path(sys.argv[1])
+          limit = 256 * 1024 * 1024
+          
+          def verify_binary_header(stream, archive):
+              # Validate format and target CPU, not code authenticity; source-free fixtures exercise this.
+              header = stream.read(4096)
+              if archive == "oreslang-linux-x86_64.tar.gz":
+                  valid = (
+                      len(header) >= 64 and header[:4] == b"\x7fELF"
+                      and header[4:6] == b"\x02\x01"
+                      and struct.unpack_from("<H", header, 16)[0] in (2, 3)  # ET_EXEC or PIE ET_DYN
+                      and struct.unpack_from("<H", header, 18)[0] == 62
+                  )
+              elif archive in ("oreslang-macos-x86_64.tar.gz", "oreslang-macos-aarch64.tar.gz"):
+                  cpu = 0x01000007 if archive == "oreslang-macos-x86_64.tar.gz" else 0x0100000c
+                  valid = (
+                      len(header) >= 32 and header[:4] == b"\xcf\xfa\xed\xfe"
+                      and struct.unpack_from("<I", header, 4)[0] == cpu
+                      and struct.unpack_from("<I", header, 12)[0] == 2  # MH_EXECUTE
+                  )
+              elif archive == "oreslang-windows-x86_64.zip":
+                  valid = False
+                  if len(header) >= 64 and header[:2] == b"MZ":
+                      offset = struct.unpack_from("<I", header, 0x3c)[0]
+                      valid = (
+                          64 <= offset and offset + 26 <= len(header)
+                          and header[offset:offset + 4] == b"PE\x00\x00"
+                          and struct.unpack_from("<H", header, offset + 4)[0] == 0x8664
+                          and struct.unpack_from("<H", header, offset + 20)[0] >= 0x70
+                          and (struct.unpack_from("<H", header, offset + 22)[0] & 0x0002) != 0
+                          and struct.unpack_from("<H", header, offset + 24)[0] == 0x020b  # PE32+
+                      )
+              else:
+                  raise ValueError(f"unknown release target: {archive}")
+              if not valid:
+                  raise ValueError(f"{archive}: binary header does not match release target")
+          
+          unix_archives = (
+              "oreslang-linux-x86_64.tar.gz",
+              "oreslang-macos-x86_64.tar.gz",
+              "oreslang-macos-aarch64.tar.gz",
+          )
+          for archive in unix_archives:
+              with tarfile.open(root / archive, "r:gz") as tar:
+                  members = tar.getmembers()
+                  if sorted(member.name for member in members) != ["atto", "oreslang"]:
+                      raise ValueError(f"{archive}: unexpected, missing or duplicate members")
+                  for member in members:
+                      if not member.isfile() or not 0 < member.size <= limit:
+                          raise ValueError(f"{archive}: unsafe member type or size: {member.name}")
+                      if (member.mode & 0o111) != 0o111 or member.mode & 0o7000 or member.mode & 0o022:
+                          raise ValueError(f"{archive}: unsafe executable mode: {member.name}")
+                      stream = tar.extractfile(member)
+                      if stream is None:
+                          raise ValueError(f"{archive}: unreadable member: {member.name}")
+                      with stream:
+                          verify_binary_header(stream, archive)
+                          while stream.read(1024 * 1024):
+                              pass
+          
+          archive = "oreslang-windows-x86_64.zip"
+          with zipfile.ZipFile(root / archive) as zipped:
+              members = zipped.infolist()
+              if sorted(member.filename for member in members) != ["atto.exe", "oreslang.exe"]:
+                  raise ValueError(f"{archive}: unexpected, missing or duplicate members")
+              for member in members:
+                  mode = (member.external_attr >> 16) & 0xFFFF
+                  kind = stat.S_IFMT(mode)
+                  if member.is_dir() or (member.create_system == 3 and kind not in (0, stat.S_IFREG)):
+                      raise ValueError(f"{archive}: unsafe member type: {member.filename}")
+                  if not 0 < member.file_size <= limit:
+                      raise ValueError(f"{archive}: unsafe member size: {member.filename}")
+                  with zipped.open(member) as stream:
+                      verify_binary_header(stream, archive)
+                      while stream.read(1024 * 1024):
+                          pass
+          PY
+          verify_tag_commit
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release already exists; refusing to replace assets" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$RELEASE_TAG" --notes "AttoLang CLI-only binaries; no native compiler bundle."
+          for archive in "${archives[@]}"; do
+            gh release upload "$RELEASE_TAG" "dist/$archive" --repo "$GITHUB_REPOSITORY"
+          done
+          verify_tag_commit
+          # An independently approved release operator must publish this draft separately.
+          # A tag push alone is not authorization to distribute binaries.
+          echo "CLI_ONLY_DRAFT_STAGED_NOT_PUBLISHED"
