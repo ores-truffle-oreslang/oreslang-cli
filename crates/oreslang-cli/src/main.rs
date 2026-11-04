@@ -569,8 +569,8 @@ fn test(args: TestArgs) -> ExitCode {
     // One test engine, not a second CLI parser. Canonical override wins;
     // legacy override remains accepted. Never fall back from a broken explicit
     // path: doing so could silently execute a different test implementation.
-    let configured = std::env::var_os("ATTO_TEST_CLI")
-        .or_else(|| std::env::var_os("ORESLANG_TEST_CLI"));
+    let configured =
+        std::env::var_os("ATTO_TEST_CLI").or_else(|| std::env::var_os("ORESLANG_TEST_CLI"));
     let executables = configured.clone().map_or_else(
         || vec![OsString::from("atto-test"), OsString::from("oreslang-test")],
         |path| vec![path],
@@ -588,9 +588,7 @@ fn test(args: TestArgs) -> ExitCode {
             Ok(status) => {
                 return ExitCode::from(status.code().unwrap_or(1).clamp(1, u8::MAX as i32) as u8);
             }
-            Err(error)
-                if configured.is_none() && error.kind() == std::io::ErrorKind::NotFound =>
-            {
+            Err(error) if configured.is_none() && error.kind() == std::io::ErrorKind::NotFound => {
                 continue;
             }
             Err(error) => {
