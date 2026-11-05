@@ -189,8 +189,10 @@ class ReleaseArchiveValidation(unittest.TestCase):
 
 
 
-class ReleaseArchiveSpecialMembers(ReleaseArchiveValidation):
+class ReleaseArchiveSpecialMembers(unittest.TestCase):
     """Fail-closed archive-type and signature checks on the real publisher script."""
+    setUp = ReleaseArchiveValidation.setUp
+    verify = ReleaseArchiveValidation.verify
 
     def test_hardlink_member_is_rejected_even_with_expected_name(self):
         archive = self.root / TARS[0]
