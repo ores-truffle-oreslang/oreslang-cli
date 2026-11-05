@@ -18,6 +18,8 @@ class TruncatedArchiveBinaryHeaders(unittest.TestCase):
                                for member in ("atto", "oreslang")]
                     make_tar(self.root / archive, entries)
                     self.verify(False)
+                    make_tar(self.root / archive, [(name, b"binary", "file")
+                                                 for name in ("atto", "oreslang")])
 
     def test_each_windows_binary_rejects_truncated_dos_header(self):
         for short_member in ("atto.exe", "oreslang.exe"):
@@ -26,6 +28,8 @@ class TruncatedArchiveBinaryHeaders(unittest.TestCase):
                            for member in ("atto.exe", "oreslang.exe")]
                 make_zip(self.root / ZIP, entries)
                 self.verify(False)
+                make_zip(self.root / ZIP, [(name, b"binary", "file")
+                                          for name in ("atto.exe", "oreslang.exe")])
 
     def test_full_synthetic_headers_remain_accepted(self):
         self.verify(True)
