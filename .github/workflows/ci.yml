@@ -50,6 +50,11 @@ jobs:
           cargo test --locked -p oreslang-cli run_accepts_canonical_atto_source_path
           cargo test --locked -p oreslang-cli source_extensions_are_independent_of_cli_alias
           cargo test --locked -p oreslang-cli canonical_atto_source_survives_bare_permission_flags
+      - name: Execute source-free release archive negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_release_archive*.py' -v
       - name: Verify Homebrew formula generator syntax and checksums contract
         shell: bash
         run: |
