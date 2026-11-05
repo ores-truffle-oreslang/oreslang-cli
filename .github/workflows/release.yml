@@ -175,6 +175,13 @@ jobs:
               "oreslang-macos-x86_64.tar.gz",
               "oreslang-macos-aarch64.tar.gz",
           )
+          # A release archive must be an ordinary artifact at its expected path,
+          # never a symlink redirecting validation or the later upload elsewhere.
+          for archive_name in (*unix_archives, "oreslang-windows-x86_64.zip"):
+              artifact = root / archive_name
+              if artifact.is_symlink() or not artifact.is_file():
+                  raise ValueError(f"{archive_name}: release archive must be a regular file")
+
           for archive in unix_archives:
               with tarfile.open(root / archive, "r:gz") as tar:
                   members = tar.getmembers()
