@@ -194,6 +194,22 @@ jobs:
                               pass
           
           archive = "oreslang-windows-x86_64.zip"
+          # The release packager creates a conventional comment-free ZIP.
+          # Reject SFX prefixes and trailing payloads even though zipfile can
+          # recover those polyglot archives by searching for the directory.
+          archive_path = root / archive
+          with archive_path.open("rb") as raw:
+              raw.seek(0, 2)
+              length = raw.tell()
+              if length < 22:
+                  raise ValueError(f"{archive}: truncated ZIP envelope")
+              raw.seek(0)
+              if raw.read(4) != b"PK\x03\x04":
+                  raise ValueError(f"{archive}: leading payload before ZIP entries")
+              raw.seek(length - 22)
+              eocd = raw.read(22)
+              if eocd[:4] != b"PK\x05\x06" or eocd[-2:] != b"\x00\x00":
+                  raise ValueError(f"{archive}: ZIP trailer or comment is not canonical")
           with zipfile.ZipFile(root / archive) as zipped:
               members = zipped.infolist()
               if sorted(member.filename for member in members) != ["atto.exe", "oreslang.exe"]:
