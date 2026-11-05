@@ -188,5 +188,46 @@ class ReleaseArchiveValidation(unittest.TestCase):
         self.verify(False)
 
 
+
+class ReleaseArchiveSpecialMembers(unittest.TestCase):
+    """Fail-closed archive-type and signature checks on the real publisher script."""
+    setUp = ReleaseArchiveValidation.setUp
+    verify = ReleaseArchiveValidation.verify
+
+    def test_hardlink_member_is_rejected_even_with_expected_name(self):
+        archive = self.root / TARS[0]
+        with tarfile.open(archive, "w:gz") as tar:
+            link = tarfile.TarInfo("atto")
+            link.type = tarfile.LNKTYPE
+            link.linkname = "oreslang"
+            link.mode = 0o755
+            tar.addfile(link)
+            binary = synthetic_executable(TARS[0])
+            member = tarfile.TarInfo("oreslang")
+            member.mode = 0o755
+            member.size = len(binary)
+            tar.addfile(member, io.BytesIO(binary))
+        self.verify(False)
+
+    def test_fifo_member_is_rejected_before_materialization(self):
+        archive = self.root / TARS[0]
+        with tarfile.open(archive, "w:gz") as tar:
+            fifo = tarfile.TarInfo("atto")
+            fifo.type = tarfile.FIFOTYPE
+            fifo.mode = 0o755
+            tar.addfile(fifo)
+            binary = synthetic_executable(TARS[0])
+            member = tarfile.TarInfo("oreslang")
+            member.mode = 0o755
+            member.size = len(binary)
+            tar.addfile(member, io.BytesIO(binary))
+        self.verify(False)
+
+    def test_pe_signature_is_required_even_with_valid_machine_type(self):
+        wrong = bytearray(synthetic_executable(ZIP))
+        wrong[128:132] = b"NOT!"
+        make_zip(self.root / ZIP, [("atto.exe", bytes(wrong), "file"), ("oreslang.exe", b"binary", "file")])
+        self.verify(False)
+
 if __name__ == "__main__":
     unittest.main()
