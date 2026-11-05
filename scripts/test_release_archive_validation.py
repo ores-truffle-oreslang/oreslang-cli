@@ -187,6 +187,33 @@ class ReleaseArchiveValidation(unittest.TestCase):
         make_tar(self.root / TARS[0], [("atto", synthetic_executable(TARS[1]), "file"), ("oreslang", b"binary", "file")])
         self.verify(False)
 
+    def test_tar_primary_member_symlink_is_rejected(self):
+        make_tar(self.root / TARS[0],
+                 [("atto", b"", "symlink"), ("oreslang", b"binary", "file")])
+        self.verify(False)
+
+    def test_secondary_macos_binary_must_match_same_target(self):
+        wrong = synthetic_executable(TARS[2])  # arm64 hidden in intel's second member
+        make_tar(self.root / TARS[1],
+                 [("atto", b"binary", "file"), ("oreslang", wrong, "file")])
+        self.verify(False)
+
+    def test_secondary_zip_binary_with_foreign_format_is_rejected(self):
+        wrong = synthetic_executable(TARS[0])  # ELF disguised as second Windows .exe
+        make_zip(self.root / ZIP,
+                 [("atto.exe", b"binary", "file"),
+                  ("oreslang.exe", wrong, "file")])
+        self.verify(False)
+
+    def test_secondary_zip_pe32_is_rejected_independently(self):
+        wrong = bytearray(synthetic_executable(ZIP))
+        wrong[152:154] = (0x010b).to_bytes(2, "little")
+        make_zip(self.root / ZIP,
+                 [("atto.exe", b"binary", "file"),
+                  ("oreslang.exe", bytes(wrong), "file")])
+        self.verify(False)
+
+
 
 if __name__ == "__main__":
     unittest.main()
