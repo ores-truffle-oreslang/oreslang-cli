@@ -210,7 +210,7 @@ jobs:
               eocd = raw.read(22)
               if eocd[:4] != b"PK\x05\x06" or eocd[-2:] != b"\x00\x00":
                   raise ValueError(f"{archive}: ZIP trailer or comment is not canonical")
-          with zipfile.ZipFile(archive_path) as zipped:
+          with zipfile.ZipFile(root / archive) as zipped:
               members = zipped.infolist()
               if sorted(member.filename for member in members) != ["atto.exe", "oreslang.exe"]:
                   raise ValueError(f"{archive}: unexpected, missing or duplicate members")
