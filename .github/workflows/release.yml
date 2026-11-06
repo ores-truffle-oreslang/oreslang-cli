@@ -132,6 +132,7 @@ jobs:
           import sys
           import tarfile
           import zipfile
+          import zlib
           
           root = pathlib.Path(sys.argv[1])
           limit = 256 * 1024 * 1024
@@ -182,7 +183,41 @@ jobs:
               if artifact.is_symlink() or not artifact.is_file():
                   raise ValueError(f"{archive_name}: release archive must be a regular file")
 
+          # Consume the complete *single* gzip member before parsing TAR entries.
+          # tarfile may stop at TAR EOF without checking the gzip CRC32/ISIZE trailer.
+          # zlib's gzip wrapper validates both fields only when decoder.eof is reached.
+          def verify_gzip_envelope(artifact, archive):
+              expanded_limit = 2 * limit + 8 * 1024 * 1024
+              if artifact.stat().st_size > expanded_limit:
+                  raise ValueError(f"{archive}: compressed archive exceeds bounded size")
+              decoder = zlib.decompressobj(31)
+              expanded = 0
+              with artifact.open("rb") as raw:
+                  while True:
+                      compressed = raw.read(64 * 1024)
+                      if not compressed:
+                          break
+                      pending = compressed
+                      while pending:
+                          output = decoder.decompress(
+                              pending, min(1024 * 1024, expanded_limit - expanded + 1)
+                          )
+                          expanded += len(output)
+                          if expanded > expanded_limit:
+                              raise ValueError(f"{archive}: gzip expanded-size limit exceeded")
+                          if decoder.eof:
+                              # No concatenated gzip members or trailing data, even NUL padding.
+                              if decoder.unused_data or raw.read(1):
+                                  raise ValueError(f"{archive}: trailing or concatenated gzip data")
+                              return
+                          remainder = decoder.unconsumed_tail
+                          if remainder == pending and not output:
+                              raise ValueError(f"{archive}: gzip decoder made no progress")
+                          pending = remainder
+              raise ValueError(f"{archive}: gzip stream missing a verified EOF/trailer")
+          
           for archive in unix_archives:
+              verify_gzip_envelope(root / archive, archive)
               with tarfile.open(root / archive, "r:gz") as tar:
                   members = tar.getmembers()
                   if sorted(member.name for member in members) != ["atto", "oreslang"]:
