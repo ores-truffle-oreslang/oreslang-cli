@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'specs/merge-assurance-public-canary-v1*'
+      - 'specs/MergeAssurancePublicCanaryV1.tla'
       - '.github/workflows/merge-assurance-tlc-canary.yml'
       - 'docs/MERGE_ASSURANCE_PUBLIC_TLC_CANARY_V1.md'
   workflow_dispatch:
@@ -29,7 +30,7 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=all)"
           echo "SOURCE_HEAD=$EXPECTED_HEAD"
           echo "SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
-          sha256sum specs/merge-assurance-public-canary-v1.tla specs/merge-assurance-public-canary-v1*.cfg
+          sha256sum specs/MergeAssurancePublicCanaryV1.tla specs/merge-assurance-public-canary-v1*.cfg
       - name: Download and SHA256-verify immutable TLC distribution
         shell: bash
         run: |
@@ -46,7 +47,7 @@ jobs:
           set -euo pipefail
           java -cp /tmp/atto-public-tla2tools.jar tlc2.TLC -workers 1 \
             -config specs/merge-assurance-public-canary-v1.good.cfg \
-            specs/merge-assurance-public-canary-v1.tla | tee tlc-logs/good.log
+            specs/MergeAssurancePublicCanaryV1.tla | tee tlc-logs/good.log
           grep -q 'Model checking completed. No error has been found.' tlc-logs/good.log
       - name: TLC adversarial mutant checks — stale review, zero step, bypass
         shell: bash
@@ -56,7 +57,7 @@ jobs:
             echo "Expect invariant violation: $mode"
             if timeout 120s java -cp /tmp/atto-public-tla2tools.jar tlc2.TLC -workers 1 \
               -config "specs/merge-assurance-public-canary-v1.$mode.cfg" \
-              specs/merge-assurance-public-canary-v1.tla \
+              specs/MergeAssurancePublicCanaryV1.tla \
               >"tlc-logs/$mode.log" 2>&1; then
               echo "UNSAFE MUTANT ACCEPTED: $mode" >&2
               exit 1
