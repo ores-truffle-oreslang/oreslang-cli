@@ -24,7 +24,10 @@ fn mutually_exclusive_build_profiles_are_rejected_before_backend_dispatch() {
                         Some(2),
                         "{binary} {subcommand} {left} {right}: {result:?}"
                     );
-                    assert!(result.stdout.is_empty(), "denied profiles must not dispatch backend");
+                    assert!(
+                        result.stdout.is_empty(),
+                        "denied profiles must not dispatch backend"
+                    );
                     let stderr = String::from_utf8_lossy(&result.stderr);
                     assert!(
                         stderr.contains("cannot be used with"),
@@ -51,7 +54,10 @@ fn each_individual_profile_is_advertised_by_both_frontends() {
             assert!(output.status.success(), "{binary} {subcommand}: {output:?}");
             let help = String::from_utf8(output.stdout).expect("UTF-8 help");
             for profile in ["--release", "--strict-aot", "--hard-rt", "--freestanding"] {
-                assert!(help.contains(profile), "{binary} {subcommand} missing {profile}");
+                assert!(
+                    help.contains(profile),
+                    "{binary} {subcommand} missing {profile}"
+                );
             }
         }
     }
