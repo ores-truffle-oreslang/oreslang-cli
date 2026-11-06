@@ -22,9 +22,45 @@ for digest in "$arm_sha" "$intel_sha"; do
   fi
 done
 version="${tag#v}"
-mkdir -p "$(dirname "$destination")"
+# Reject output aliases before any filesystem mutation. Atomic renames do not
+# dereference symlinks or corrupt other hardlinks, but refusing aliases also
+# prevents surprising removal of caller-owned paths.
+preflight_destination() {
+  if [[ -z "$destination" || "$destination" == */ || -L "$destination" ]]; then
+    echo "invalid or symlinked formula destination" >&2
+    return 2
+  fi
+  if [[ -e "$destination" ]]; then
+    if [[ ! -f "$destination" ]]; then
+      echo "formula destination must be a regular file" >&2
+      return 2
+    fi
+    local links
+    if links="$(stat -c %h "$destination" 2>/dev/null)"; then
+      :
+    elif links="$(stat -f %l "$destination" 2>/dev/null)"; then
+      :
+    else
+      echo "cannot attest formula destination link count" >&2
+      return 2
+    fi
+    if [[ ! "$links" =~ ^[0-9]+$ ]] || (( links > 1 )); then
+      echo "hardlinked or unverified formula destination" >&2
+      return 2
+    fi
+  fi
+}
+preflight_destination
+parent="${destination%/*}"
+if [[ "$parent" == "$destination" ]]; then parent="."; fi
+mkdir -p -- "$parent"
+# Write into a fresh same-directory file, then atomically replace the target
+# only after complete generation. Failure must leave the previous formula
+# byte-identical and remove transient files.
+tmp="$(mktemp "$parent/.oreslang-formula.XXXXXXXX")"
+trap 'rm -f -- "$tmp"' EXIT
 
-cat > "$destination" <<RUBY
+cat > "$tmp" <<RUBY
 # Generated after an approved binary release. Never substitute private CI
 # artifact URLs or unverified compiler checksums.
 class Oreslang < Formula
@@ -60,4 +96,8 @@ class Oreslang < Formula
   end
 end
 RUBY
+chmod 0644 "$tmp"
+preflight_destination
+mv -f -- "$tmp" "$destination"
+trap - EXIT
 echo "Wrote $destination; validate with brew style/audit/install/test before publishing." >&2
