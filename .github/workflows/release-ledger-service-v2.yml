@@ -1,0 +1,118 @@
+name: Signed AttoLang PostgreSQL diagnostic and bounded TLC (NON-AUTHORIZING)
+on:
+  pull_request:
+    paths:
+      - 'tools/release-ledger-service-v2/**'
+      - 'tests/release-ledger-service-v2*'
+      - 'tests/fixtures/release-ledger-service-v2-signed.mjs'
+      - 'formal/release-ledger-service-v2/**'
+      - 'docs/RELEASE_LEDGER_SERVICE_V2.md'
+      - '.github/workflows/release-ledger-service-v2.yml'
+      - 'tools/release-ledger-service-v1/**'
+      - 'tools/release-checkpoint-v1/**'
+      - 'tools/release-trust-registry-v1/**'
+      - 'tools/release-assurance-v1/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signed-chain-postgresql-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:16.8
+        env:
+          POSTGRES_USER: attotest
+          POSTGRES_PASSWORD: localtestpassword
+          POSTGRES_DB: atto_signed_v2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U attotest -d atto_signed_v2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout original PR head with no persisted GitHub credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Bind exact head tree and every source/dependency blob
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          for p in tools/release-ledger-service-v2/signed-claim.mjs tools/release-ledger-service-v2/http.mjs tests/fixtures/release-ledger-service-v2-signed.mjs tests/release-ledger-service-v2.test.mjs tests/release-ledger-service-v2-pg.test.mjs formal/release-ledger-service-v2/ReleaseLedgerChecked.tla formal/release-ledger-service-v2/ReleaseLedgerChecked.cfg formal/release-ledger-service-v2/ReleaseLedgerPolicyRollbackMutant.tla formal/release-ledger-service-v2/ReleaseLedgerPolicyRollbackMutant.cfg formal/release-ledger-service-v2/ReleaseLedgerPublishMutant.tla formal/release-ledger-service-v2/ReleaseLedgerPublishMutant.cfg formal/release-ledger-service-v2/run-tlc.sh .github/workflows/release-ledger-service-v2.yml docs/RELEASE_LEDGER_SERVICE_V2.md tools/release-ledger-service-v1/protocol.mjs tools/release-ledger-service-v1/postgres.mjs tools/release-ledger-service-v1/server.mjs tools/release-ledger-service-v1/schema.sql tools/release-ledger-service-v1/package.json tools/release-checkpoint-v1/verify.mjs tools/release-trust-registry-v1/verify.mjs tools/release-assurance-v1/verify.mjs; do
+            sha="$(git rev-parse "HEAD:$p")"
+            test "$(git hash-object --no-filters "$p")" = "$sha"
+            echo "EXACT_SOURCE_BLOB $p $sha"
+          done
+          echo "EXACT_HEAD=$EXPECTED_HEAD"
+          echo "EXACT_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Install pinned Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Install isolated PostgreSQL test driver only
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix tools/release-ledger-service-v1 --ignore-scripts --no-audit --no-fund --no-package-lock
+      - name: Execute actual signed-claim and real PostgreSQL adversarial tests
+        shell: bash
+        env:
+          ATTO_LEDGER_TEST_PG_URL: postgresql://attotest:localtestpassword@127.0.0.1:5432/atto_signed_v2
+        run: |
+          set -euo pipefail
+          node --version
+          for p in tools/release-ledger-service-v2/signed-claim.mjs tools/release-ledger-service-v2/http.mjs tests/fixtures/release-ledger-service-v2-signed.mjs tests/release-ledger-service-v2.test.mjs tests/release-ledger-service-v2-pg.test.mjs; do node --check "$p"; done
+          node --test tests/release-ledger-service-v2.test.mjs tests/release-ledger-service-v2-pg.test.mjs | tee "$RUNNER_TEMP/v2-signed.taps"
+          node --input-type=module - "$RUNNER_TEMP/v2-signed.taps" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const lines=readFileSync(process.argv[2],'utf8').split(/\r?\n/);
+          const count=k=>{
+            const p='# '+k+' ';
+            const match=lines.filter(x=>x.startsWith(p));
+            if(match.length!==1||!/^[0-9]+$/.test(match[0].slice(p.length)))
+              throw Error('INVALID_OR_DUPLICATE_TAP_METRIC_'+k);
+            return Number(match[0].slice(p.length));
+          };
+          const n=count('tests'),pass=count('pass'),fail=count('fail');
+          const skip=count('skipped'),cancel=count('cancelled');
+          if(n<240||n!==pass||fail!==0||skip!==0||cancel!==0)
+            throw Error('NATIVE_SIGNED_POSTGRESQL_TESTS_NOT_EXECUTED');
+          console.log('ACTUAL_SIGNED_POSTGRESQL_TESTS_PASS='+pass);
+          NODE
+          echo "SOURCE_FREE_SYNTHETIC_ONLY release_authorized=false"
+  actual-tlc-model-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - name: Checkout exact immutable PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Bind original TLA model and mutation blobs
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_HEAD"
+          for p in formal/release-ledger-service-v2/ReleaseLedgerChecked.tla formal/release-ledger-service-v2/ReleaseLedgerChecked.cfg formal/release-ledger-service-v2/ReleaseLedgerPolicyRollbackMutant.tla formal/release-ledger-service-v2/ReleaseLedgerPolicyRollbackMutant.cfg formal/release-ledger-service-v2/ReleaseLedgerPublishMutant.tla formal/release-ledger-service-v2/ReleaseLedgerPublishMutant.cfg formal/release-ledger-service-v2/run-tlc.sh; do
+            test "$(git hash-object --no-filters "$p")" = "$(git rev-parse "HEAD:$p")"
+          done
+          echo "EXACT_TLC_HEAD=$EXPECTED_HEAD"
+          echo "EXACT_TLC_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Run pinned TLC, healthy model and two expected invariant mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash formal/release-ledger-service-v2/run-tlc.sh
