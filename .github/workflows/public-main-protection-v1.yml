@@ -1,0 +1,39 @@
+name: Public main protection admin plan v1 (non-promoting)
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-main-protection-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Prove original source commit and clean tree
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "EXACT_SOURCE_HEAD=$EXPECTED_HEAD"
+          echo "EXACT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Adversarial public administrator-policy model tests
+        run: node --test tests/public-main-protection-v1.test.mjs
+      - name: Validate four deterministic protection payloads without applying them
+        run: |
+          set -euo pipefail
+          for repo in oreslang-cli html-js-css-syntax-highlighter sublime-text-plugins vscode-plugins; do
+            node tools/public-main-protection-v1.mjs --plan "ores-truffle-oreslang/$repo" steady >/dev/null
+          done
