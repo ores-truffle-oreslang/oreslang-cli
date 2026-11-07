@@ -15,6 +15,12 @@ An **independently trusted caller** must additionally pin the complete checkpoin
 
 **Crucial:** signed checkpoints, even when fresh, do not prove that the asserted high-water mark is the latest committed state. The current library does not have an authenticated monotonic storage backend, compare-and-swap or atomic consumption. A stale but valid signed snapshot plus stale externally supplied pins can still be replayed. This is an intentionally **advisory local candidate** and not an authorization or secure replay database. Verify policy/revocation/time at the instant of any future privileged action, not only at preparatory verification.
 
+## Hardened lifetime intersection
+
+The checkpoint's exclusive `expires_at` must be **no later than** the governance-review key's delegated expiry, its scheduled revocation (if any), or the root-signed registry expiry. The release intent's exclusive expiry must be **no later than** the checkpoint expiry, the release-approval key's expiry/revocation, the candidate-signing key's expiry/revocation, or the registry expiry. An exact equality at an exclusive boundary is allowed; even a one-second overrun is denied. A key valid at the current clock instant is insufficient for a later-expiring signed claim. Candidate envelopes have no independently authenticated signing timestamp, so a delegation covering the asserted intent interval is a conservative admission constraint, **not** proof when the candidate was signed.
+
+These restrictions only prevent locally contradictory validity windows. They cannot establish that `now` is an independently authenticated time, that root revocations were fetched live, or that the checkpoint came from the latest durable atomic high-water store. The "two concurrent intents, one sequence" problem remains blocked by absence of CAS: no successful local result can spend a sequence or authorize release.
+
 ## Canonical payloads
 
 - DSSE payload type application/vnd.atto.release-checkpoint.v1+json; strict keys: schema, repository, policy_id, policy_sequence, registry_sha256, ledger_id, last_sequence, last_intent_sha256, last_nonce, observed_at, expires_at.

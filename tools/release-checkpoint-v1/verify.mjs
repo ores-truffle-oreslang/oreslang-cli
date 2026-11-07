@@ -63,22 +63,31 @@ function signed(envelopeBytes, type) {
   return { payload: parsed, raw: payload, signature,
     keyid: env.signatures[0].keyid, digest: hash(envelopeBytes), type };
 }
-function authorizeRole(e, policy, role, repository, now, signedAt, disallow) {
+// A signature valid *now* cannot vouch for a record whose promised lifetime
+// extends beyond the key's own expiry or an already scheduled revocation.
+// An exclusive end exactly equal to key expiry/revocation is admissible.
+function delegationCovers(record, now, issuedAt, expiresAt) {
+  const from = millis(record.not_before), to = millis(record.not_after);
+  const revokeAt = record.revoked_at === null ? null : millis(record.revoked_at);
+  return from !== null && to !== null && expiresAt > issuedAt &&
+    now >= from && now < to && issuedAt >= from && issuedAt < to &&
+    expiresAt <= to && (revokeAt === null ||
+      (now < revokeAt && expiresAt <= revokeAt));
+}
+function authorizeRole(e, policy, role, repository, now, signedAt, expiresAt, disallow) {
   const matching = policy.keys.filter(k => k.keyid === e.keyid);
   if (matching.length !== 1 || e.keyid === disallow ||
       matching[0].role !== role || matching[0].repository !== repository)
     throw Error('untrusted or overlapping delegated signing role');
   const record = matching[0];
-  if (now < millis(record.not_before) || now >= millis(record.not_after) ||
-      signedAt < millis(record.not_before) || signedAt >= millis(record.not_after) ||
-      (record.revoked_at !== null && now >= millis(record.revoked_at)))
-    throw Error('delegation expired, future-effective, or revoked');
+  if (!delegationCovers(record, now, signedAt, expiresAt))
+    throw Error('delegation expires or revokes before signed record expires');
   const { key, keyid } = trustKeyId(record.spki_pem);
   if (keyid !== e.keyid || !verifyEd25519(null, pae(e.type, e.raw), key, e.signature))
     throw Error('invalid delegated signature');
   return keyid;
 }
-function validateLink(state, intent, pin, base, registryHash, sequence, nowMs) {
+function validateLink(state, intent, pin, base, registryHash, sequence, nowMs, policyExpiresAt) {
   if (!keys(pin, ['schema', 'checkpoint_sha256', 'intent_sha256', 'ledger_id',
       'next_sequence', 'previous_intent_sha256']) ||
       pin.schema !== 'atto.release-link-pin.v1' || !hex(pin.checkpoint_sha256) ||
@@ -98,8 +107,8 @@ function validateLink(state, intent, pin, base, registryHash, sequence, nowMs) {
   const observed = millis(state.observed_at), stateUntil = millis(state.expires_at);
   if (observed > nowMs || nowMs - observed > MAX_AGE_MS ||
       stateUntil <= nowMs || stateUntil <= observed ||
-      stateUntil - observed > MAX_AGE_MS)
-    throw Error('checkpoint expired, stale, future, or too long-lived');
+      stateUntil - observed > MAX_AGE_MS || stateUntil > policyExpiresAt)
+    throw Error('checkpoint expired, stale, outlived trust policy or too long-lived');
   if (state.last_sequence === 0 &&
       (state.last_intent_sha256 !== ZERO || state.last_nonce !== ZERO))
     throw Error('invalid genesis checkpoint');
@@ -127,9 +136,10 @@ function validateLink(state, intent, pin, base, registryHash, sequence, nowMs) {
     throw Error('intent not bound to current release or unique ledger step');
   const issued = millis(intent.issued_at), until = millis(intent.expires_at);
   if (issued < observed || issued > nowMs || nowMs >= until ||
-      until <= issued || until - issued > MAX_AGE_MS)
-    throw Error('release intent stale, not yet effective, or expired');
-  return { observed, issued };
+      until <= issued || until - issued > MAX_AGE_MS ||
+      until > stateUntil || until > policyExpiresAt)
+    throw Error('release intent stale, outlives checkpoint or policy, or expired');
+  return { observed, issued, checkpointUntil: stateUntil, intentUntil: until };
 }
 
 // Caller pins MUST come independently from an authenticated governance/ledger
@@ -152,12 +162,23 @@ export function verifySequenceLinkedCandidate({ registryEnvelopeBytes,
         intent.digest !== ledgerPin.intent_sha256)
       return denied('CHECKPOINT_OR_INTENT_NOT_EXTERNALLY_PINNED');
     const registryHash = hash(registryEnvelopeBytes);
+    const policyExpiresAt = millis(policy.not_after);
     const timing = validateLink(state.payload, intent.payload, ledgerPin,
-      expected, registryHash, local.policy_sequence, nowMs);
+      expected, registryHash, local.policy_sequence, nowMs, policyExpiresAt);
     const governanceKeyId = authorizeRole(state, policy, 'governance-review',
-      expected.repository, nowMs, timing.observed, local.signer_keyid);
+      expected.repository, nowMs, timing.observed, timing.checkpointUntil,
+      local.signer_keyid);
     const approvalKeyId = authorizeRole(intent, policy, 'release-approval',
-      expected.repository, nowMs, timing.issued, local.signer_keyid);
+      expected.repository, nowMs, timing.issued, timing.intentUntil,
+      local.signer_keyid);
+    // The candidate signature itself has no authenticated signing timestamp.
+    // Conservatively refuse any intent extending beyond the candidate-key
+    // delegation, without treating this check as proof of signing time.
+    const candidateSigner = policy.keys.find(k => k.keyid === local.signer_keyid);
+    if (!candidateSigner || candidateSigner.role !== 'candidate-signing' ||
+        candidateSigner.repository !== expected.repository ||
+        !delegationCovers(candidateSigner, nowMs, timing.issued, timing.intentUntil))
+      return denied('CANDIDATE_SIGNER_LIFETIME_EXCEEDED');
     if (governanceKeyId === approvalKeyId)
       return denied('SEPARATE_APPROVAL_AND_CHECKPOINT_KEYS_REQUIRED');
     return { classification: 'SEQUENCE_LINKED_LOCAL_CANDIDATE',
