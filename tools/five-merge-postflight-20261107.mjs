@@ -10,6 +10,16 @@ export const WAVE=Object.freeze([
 ]);
 const meaningful=/\b(test|tests|pytest|unittest|npm run ci|lint|format|smoke|model|render|package|archive|compile|build|verify|validation|validate|chromium|syntax assertions)\b/i;
 const excluded=/^(set up job|complete job|post |run actions\/checkout|run actions\/setup-)/i;
+
+function strictUtc(value){
+  if(typeof value!=='string')return false;
+  const m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z$/.exec(value);
+  if(!m)return false;
+  const [y,mon,day,h,min,s]=m.slice(1).map(Number);
+  if(y<1970||mon<1||mon>12||day<1||h>23||min>59||s>59)return false;
+  const d=new Date(Date.UTC(y,mon-1,day,h,min,s));
+  return d.getUTCFullYear()===y&&d.getUTCMonth()+1===mon&&d.getUTCDate()===day&&d.getUTCHours()===h&&d.getUTCMinutes()===min&&d.getUTCSeconds()===s;
+}
 export function evaluateEvidence(t,e){
 const failures=[];
 const fail=x=>{if(!failures.includes(x))failures.push(x)};
@@ -19,8 +29,43 @@ if(pr?.merged!==true||pr?.merge_commit_sha!==t.merge||pr?.head?.sha!==t.head||pr
 if(branch?.name!=='main'||!sha40.test(branch?.commit?.sha||'')||!['ahead','identical'].includes(compare?.status)||compare?.behind_by!==0||compare?.base_commit?.sha!==t.merge)fail('MAIN_ANCESTRY_UNVERIFIED');
 if(branch?.protected!==true||!Array.isArray(rulesets)||!protection||protection?.enforce_admins?.enabled!==true||protection?.required_pull_request_reviews?.required_approving_review_count<1||protection?.required_pull_request_reviews?.require_code_owner_reviews!==true||protection?.required_pull_request_reviews?.dismiss_stale_reviews!==true||protection?.required_status_checks?.strict!==true)fail('ENFORCED_BRANCH_POLICY_UNVERIFIED');
 if(run?.id!==t.run||run?.event!=='push'||run?.head_sha!==t.merge||run?.status!=='completed'||run?.conclusion!=='success'||!Number.isSafeInteger(run?.run_attempt)||run.run_attempt<1)fail('POST_MERGE_RUN_UNVERIFIED');
-if(!Array.isArray(jobs?.jobs)||jobs.jobs.length===0||jobs?.total_count!==jobs.jobs.length||jobs.jobs.some(j=>j.status!=='completed'||j.conclusion!=='success'||!Array.isArray(j.steps)||j.steps.length===0)||!jobs?.jobs?.some(j=>j.steps?.some(s=>s.status==='completed'&&s.conclusion==='success'&&meaningful.test(s.name||'')&&!excluded.test(s.name||''))))fail('MEANINGFUL_EXECUTED_TEST_UNVERIFIED');
-const approvers=Array.isArray(reviews)?reviews.filter(r=>r.state==='APPROVED'&&r.commit_id===t.head&&r.user?.id>0&&r.user.id!==pr?.user?.id&&typeof r.submitted_at==='string'&&Number.isFinite(Date.parse(r.submitted_at))&&Date.parse(r.submitted_at)<=Date.parse(pr?.merged_at||'')):[];
+const jobList=jobs?.jobs;
+if(!Array.isArray(jobList)||jobList.length===0||
+   jobs?.total_count!==jobList.length||
+   new Set(jobList.map(j=>j.id)).size!==jobList.length||
+   new Set(jobList.map(j=>j.name)).size!==jobList.length||
+   jobList.some(j=>!Number.isSafeInteger(j.id)||j.id<=0||
+      !Number.isSafeInteger(j.run_id)||j.run_id!==t.run||
+      !Number.isSafeInteger(j.run_attempt)||j.run_attempt!==run?.run_attempt||
+      !Number.isSafeInteger(j.runner_id)||j.runner_id<=0||
+      j.status!=='completed'||j.conclusion!=='success'||
+      !Array.isArray(j.steps)||j.steps.length===0||
+      j.steps.some(s=>s.status!=='completed'||s.conclusion!=='success'))||
+   !jobList?.some(j=>j.steps?.some(s=>s.status==='completed'&&
+      s.conclusion==='success'&&meaningful.test(s.name||'')&&!excluded.test(s.name||''))))
+  fail('MEANINGFUL_EXECUTED_TEST_UNVERIFIED');
+const mergedAt=pr?.merged_at;
+let timelineValid=Array.isArray(reviews)&&strictUtc(mergedAt);
+const latestByReviewer=new Map();
+if(timelineValid){
+  for(const r of reviews){
+    if(!Number.isSafeInteger(r.user?.id)||r.user.id<=0||
+       !['APPROVED','CHANGES_REQUESTED','COMMENTED','DISMISSED'].includes(r.state)||
+       !sha40.test(r.commit_id||'')||!strictUtc(r.submitted_at)||
+       r.submitted_at>mergedAt){
+      timelineValid=false;break;
+    }
+    const previous=latestByReviewer.get(r.user.id);
+    if(previous&&previous.submitted_at===r.submitted_at){
+      timelineValid=false;break;
+    }
+    if(!previous||previous.submitted_at<r.submitted_at)latestByReviewer.set(r.user.id,r);
+  }
+}
+if(!timelineValid)fail('REVIEW_TIMELINE_INVALID_OR_INCOMPLETE');
+const latest=[...latestByReviewer.values()];
+if(latest.some(r=>r.state==='CHANGES_REQUESTED'))fail('OUTSTANDING_CHANGES_REQUESTED');
+const approvers=timelineValid?latest.filter(r=>r.state==='APPROVED'&&r.commit_id===t.head&&r.user.id!==pr?.user?.id):[];
 if(approvers.length===0)fail('INDEPENDENT_PRE_MERGE_APPROVAL_ABSENT');
 // Current settings cannot certify historical enforcement; release remains blocked.
 fail('HISTORICAL_ENFORCEMENT_AND_RELEASE_RECERTIFICATION_REQUIRED');
