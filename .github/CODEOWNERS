@@ -1,0 +1,18 @@
+# AttoLang CLI ownership bootstrap (public source only).
+# A CODEOWNERS file alone is NOT an enforced review policy.
+# Administrators must enforce protected main + independent code-owner approval.
+* @ORESoftware
+/.github/ @ORESoftware
+/.oreslang/ @ORESoftware
+/crates/ @ORESoftware
+/docs/ @ORESoftware
+/packaging/ @ORESoftware
+/scripts/ @ORESoftware
+/specs/ @ORESoftware
+/tools/ @ORESoftware
+/tests/ @ORESoftware
+/Cargo.toml @ORESoftware
+/Cargo.lock @ORESoftware
+/.cli-flags.toml @ORESoftware
+/.gitignore @ORESoftware
+/README.md @ORESoftware
