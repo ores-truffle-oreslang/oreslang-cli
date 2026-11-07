@@ -27,6 +27,13 @@ jobs:
           [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           test -z "$(git status --porcelain --untracked-files=all)"
+          while IFS= read -r -d '' item; do
+            test "${item:0:1}" = H
+          done < <(git ls-files -z -v)
+          for path in tools/public-main-protection-v1.mjs tests/public-main-protection-v1.test.mjs docs/PUBLIC_MAIN_PROTECTION_V1.md .github/workflows/public-main-protection-v1.yml; do
+            test -f "$path"
+            test "$(git hash-object "$path")" = "$(git rev-parse "HEAD:$path")"
+          done
           echo "EXACT_SOURCE_HEAD=$EXPECTED_HEAD"
           echo "EXACT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
       - name: Adversarial public administrator-policy model tests

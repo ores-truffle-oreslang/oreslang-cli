@@ -46,3 +46,13 @@ Audit ALWAYS exits 3, with merge_authorized=false, release_authorized=false and 
 - The CI tests are adversarial data-model checks, NOT executed guest/compiler parity.
 - Do not classify the previous five public merges as release-qualified retroactively.
 - GitHub REST branch protection reference: https://docs.github.com/en/rest/branches/branch-protection
+
+## Adversarial model hardening
+
+The model now requires an exact authenticated repository numeric ID + full name from a separate repository GET alongside the branch readback; unknown/duplicated ruleset IDs or enforcement states, unbound or unexpected status check names, legacy contexts not covered by issuer-bound checks, extra bypass keys, and review-dismissal allowlists fail closed. Reported consistency is still caller-provided input consistency, NEVER an independently authenticated permission decision. Ruleset list and details, including organization-level inherited rules, require separate authenticated administrative inspection. Main-SHA checks and repository ID matching do not create tamper-proof provenance.
+
+The CLI rejects symlinked and larger-than-1-MiB audit input files to avoid accidentally consuming an unbounded or surprising input. This is a guardrail, not proof that the file is trustworthy; obtain the data from a trusted read-only administrator session and keep it out of untrusted PR workflows.
+
+### Hostile CLI input controls
+
+For `--audit` the tool opens the evidence file with `O_NOFOLLOW`, checks a real regular-file descriptor and bounded size (maximum 1 MiB), verifies a stable read size, decodes strict UTF-8 and refuses malformed JSON. Adversarial Node tests spawn the executable and verify that symlinks, oversized files, invalid UTF-8 and broken JSON return failure without authorizing any action. The audit's exit status is **3 even when all supplied data appears consistent**; a parser/error failure exits **2**. No CLI exit status authorizes a merge, promotion, release or source export.
