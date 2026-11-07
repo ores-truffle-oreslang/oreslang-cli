@@ -25,6 +25,10 @@ export const REPOSITORIES = Object.freeze([
 const SHA = /^[0-9a-f]{40}$/;
 const REPO = /^ores-truffle-oreslang\/[a-z0-9][a-z0-9._-]{1,79}$/;
 const PRIVATE_POLICY_APP_ID = 15368;
+const NEVER_AUTHORIZED = Object.freeze({
+  merge_authorized: false, release_authorized: false,
+  private_source_export_authorized: false,
+});
 
 // A first/last branch HEAD equality is not proof that the protected policy
 // stayed fixed. Snapshot full API objects immediately (not a mutable reference)
@@ -220,18 +224,18 @@ export async function main(args, env, output = process.stdout) {
   const requested = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] !== '--repo' || !args[i + 1]) {
-      output.write(JSON.stringify({status:'INVALID_ARGUMENTS',release_authorized:false}) + '\n');
+      output.write(JSON.stringify({status:'INVALID_ARGUMENTS',...NEVER_AUTHORIZED}) + '\n');
       return 2;
     }
     requested.push(args[++i]);
   }
   if (requested.some(repo => !REPOSITORIES.includes(repo)) ||
       new Set(requested).size !== requested.length) {
-    output.write(JSON.stringify({status:'INVALID_REPOSITORY',release_authorized:false}) + '\n');
+    output.write(JSON.stringify({status:'INVALID_REPOSITORY',...NEVER_AUTHORIZED}) + '\n');
     return 2;
   }
-  if (!env.GH_TOKEN) {
-    output.write(JSON.stringify({status:'ADMIN_TOKEN_REQUIRED',release_authorized:false}) + '\n');
+  if (typeof env.GH_TOKEN !== 'string' || !env.GH_TOKEN.trim()) {
+    output.write(JSON.stringify({status:'ADMIN_TOKEN_REQUIRED',...NEVER_AUTHORIZED}) + '\n');
     return 2;
   }
   const receipt = await audit(githubReader(env.GH_TOKEN), requested.length ? requested : REPOSITORIES);
@@ -244,7 +248,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   main(process.argv.slice(2), process.env)
     .then(code => { process.exitCode = code; })
     .catch(() => {
-      process.stdout.write(JSON.stringify({status:'AUDIT_UNAVAILABLE',release_authorized:false}) + '\n');
+      process.stdout.write(JSON.stringify({status:'AUDIT_UNAVAILABLE',...NEVER_AUTHORIZED}) + '\n');
       process.exitCode = 2;
     });
 }
