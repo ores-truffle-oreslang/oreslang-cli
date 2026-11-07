@@ -154,7 +154,8 @@ test('authenticated client cannot replace externally pinned signed envelopes',as
   await new Promise(res=>srv.listen(0,'127.0.0.1',res));
   try{
     const base='http://127.0.0.1:'+srv.address().port;
-    const f2=makeFixture({ledgerId:f.ledgerId});
+    const f2=makeFixture({ledgerId:f.ledgerId,
+      intentMutate:intent=>{intent.nonce='4'.repeat(64);}});
     const q=signV2DiagnosticRequest({secret:SECRET,client:CLIENT,body:f2.body,
       timestamp:TIMESTAMP});
     const response=await fetch(base+q.path,{
