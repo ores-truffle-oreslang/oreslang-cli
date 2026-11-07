@@ -85,13 +85,19 @@ function validateReceipt(m) {
     return 'GOVERNANCE_NOT_ASSERTED';
   if (!Array.isArray(m.reviews) || m.reviews.length === 0) return 'MISSING_REVIEWS';
   const byUser = new Map();
+  const seenReviewTimes = new Set();
   for (const review of m.reviews) {
     if (!eqKeys(review, ['reviewer', 'state', 'commit_id', 'submitted_at']) ||
         !string(review.reviewer) || !['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED', 'COMMENTED'].includes(review.state) ||
         !sha1(review.commit_id) || !strictUtc(review.submitted_at)) return 'INVALID_REVIEW';
     const user = review.reviewer.toLowerCase();
+    const eventKey = `${user}|${review.submitted_at}`;
+    if (seenReviewTimes.has(eventKey)) return 'AMBIGUOUS_REVIEW_HISTORY';
+    seenReviewTimes.add(eventKey);
+    // GitHub COMMENTED does not dismiss a preceding CHANGES_REQUESTED review.
+    // Only an explicit new APPROVED or DISMISSED decision supersedes it.
+    if (review.state === 'COMMENTED') continue;
     const previous = byUser.get(user);
-    if (previous && previous.submitted_at === review.submitted_at) return 'AMBIGUOUS_REVIEW_HISTORY';
     if (!previous || previous.submitted_at < review.submitted_at) byUser.set(user, review);
   }
   const latest = [...byUser.values()];

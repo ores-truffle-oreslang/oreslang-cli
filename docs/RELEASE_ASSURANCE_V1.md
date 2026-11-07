@@ -86,7 +86,7 @@ independent authenticated source-side execution and matching blobs.
   multi-linked, nonregular, empty, and oversized files, and inode/size/mtime/
   ctime changes during read. Envelope max 256 KiB, public key max 16 KiB,
   release artifact max 64 MiB.
-- Real Node 22 tests cover 39 individual mutation cases, 1,024 compound
+- Real Node 22 tests cover 40 individual mutation cases, 1,024 compound
   boolean-security combinations, key substitution, artifact tampering,
   malformed canonical JSON/UTF-8/base64, unsafe paths, and the CLI nonzero
   exit-code contract.

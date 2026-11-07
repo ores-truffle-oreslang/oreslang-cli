@@ -71,7 +71,7 @@ test('synthetic signed candidate cryptographically binds local bytes but never a
   assert.equal(output.compiler_guest_parity_proven, false);
   assert.equal(output.receipt_count, 5);
 });
-test('all 39 individually specified adversarial evidence mutations fail closed', () => {
+test('all 40 individually specified adversarial evidence mutations fail closed', () => {
   const mutate = [
     x => { x.schema = 'fake'; },
     x => { x.subject.head_sha = 'A'.repeat(40); },
@@ -94,6 +94,12 @@ test('all 39 individually specified adversarial evidence mutations fail closed',
     x => { x.reviews[0].submitted_at = '2026-02-30T20:40:00Z'; },
     x => { x.reviews.push({ ...x.reviews[0], state: 'DISMISSED', submitted_at:'2026-11-06T20:41:00Z' }); },
     x => { x.reviews.push({ ...x.reviews[0], state: 'CHANGES_REQUESTED', submitted_at:'2026-11-06T20:41:00Z' }); },
+    x => {
+      x.governance.codeowners.push('OtherOwner');
+      x.reviews.push({ ...x.reviews[0], state: 'CHANGES_REQUESTED', submitted_at:'2026-11-06T20:41:00Z' });
+      x.reviews.push({ ...x.reviews[0], state: 'COMMENTED', submitted_at:'2026-11-06T20:42:00Z' });
+      x.reviews.push({ ...x.reviews[0], reviewer:'OtherOwner', submitted_at:'2026-11-06T20:40:30Z' });
+    },
     x => { x.reviews.push({ ...x.reviews[0] }); },
     x => { x.workflow.run_attempt = 0; },
     x => { x.workflow.runner_id = 0; },
@@ -113,7 +119,7 @@ test('all 39 individually specified adversarial evidence mutations fail closed',
     x => { x.backends[1] = { ...x.backends[0], backend: 'llvm' }; },
     x => { x.backends.push({ ...x.backends[0] }); }
   ];
-  assert.equal(mutate.length, 39);
+  assert.equal(mutate.length, 40);
   for (const [index, apply] of mutate.entries()) {
     const x = fixture(); apply(x);
     const result = check(x);
