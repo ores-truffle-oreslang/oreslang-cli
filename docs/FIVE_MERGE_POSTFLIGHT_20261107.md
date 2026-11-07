@@ -36,3 +36,16 @@ The live command emits JSON and **exits nonzero**. It checks public PR head and 
 4. Require signed release evidence and exact-main postflight tests, and obtain explicit independent release-owner recertification before release. Do not rewrite main history, export private source, or treat CODEOWNERS alone as enforcement.
 
 Historical branch enforcement and pre-merge approvals cannot be reconstructed from present-day settings. The incident audit **always returns BLOCKED** even when current policy is subsequently strengthened. Track coordination at oreslang-platform-conformance issue #359.
+
+## Follow-up audit: historical-review and job provenance refinement
+
+An earlier advisory blocker classifier treated any historic APPROVED event as sufficient to suppress the missing-approval reason, even if the same reviewer subsequently submitted CHANGES_REQUESTED, COMMENTED or DISMISSED before merge. It also used permissive JavaScript date normalization and accepted ambiguous/duplicate job snapshots without a runner identity check.
+
+The strengthened non-authorizing classifier now:
+- requires canonical real Gregorian UTC-second timestamps for the merge and every review;
+- uses each independent reviewer's latest submitted state at or before the historical merge; invalid, post-merge, contradictory or ambiguous timelines fail closed;
+- checks current-head approvals, excludes the PR author's identity and flags outstanding changes requested;
+- rejects duplicate job names/IDs, missing or mismatched run/attempt identities, absent/zero runner IDs, failed/skipped steps and incomplete job pagination;
+- always returns BLOCKED and retains the historical recertification blocker, even when synthetic evidence is otherwise complete.
+
+More than forty separately named negative tests exercise historic review dismissals, stale approvals, invalid dates, identity spoofing, unsuccessful companion jobs and false-positive runner receipts. This corrects diagnostic classification only; it **does not** authenticate live branch protection, revive a revoked approval, or authorize a historical release.
