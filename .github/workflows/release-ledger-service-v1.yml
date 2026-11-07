@@ -1,0 +1,96 @@
+name: AttoLang PostgreSQL release-ledger service (NON-AUTHORIZING)
+on:
+  pull_request:
+    paths:
+      - 'tools/release-ledger-service-v1/**'
+      - 'tests/release-ledger-service-v1.test.mjs'
+      - 'tests/release-ledger-service-v1-pg.test.mjs'
+      - 'formal/release-ledger-service-v1/**'
+      - 'docs/RELEASE_LEDGER_SERVICE_V1.md'
+      - '.github/workflows/release-ledger-service-v1.yml'
+      - 'tools/release-ledger-v1/**'
+      - 'tools/release-checkpoint-v1/**'
+      - 'tools/release-trust-registry-v1/**'
+      - 'tools/release-assurance-v1/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  nonauthorizing-postgres-cas-and-auth-protocol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.8
+        env:
+          POSTGRES_USER: attotest
+          POSTGRES_PASSWORD: localtestpassword
+          POSTGRES_DB: atto_ledger_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U attotest -d atto_ledger_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout immutable original PR head with no token persistence
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify original head, tree and every inherited/new source blob
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          for p in tools/release-ledger-service-v1/protocol.mjs tools/release-ledger-service-v1/client.mjs tools/release-ledger-service-v1/postgres.mjs tools/release-ledger-service-v1/server.mjs tools/release-ledger-service-v1/schema.sql tools/release-ledger-service-v1/package.json tests/release-ledger-service-v1.test.mjs tests/release-ledger-service-v1-pg.test.mjs formal/release-ledger-service-v1/ReleaseLedger.tla docs/RELEASE_LEDGER_SERVICE_V1.md .github/workflows/release-ledger-service-v1.yml tools/release-ledger-v1/sqlite-ledger.mjs tests/release-ledger-v1.test.mjs tools/release-checkpoint-v1/verify.mjs tests/release-checkpoint-v1.test.mjs tools/release-trust-registry-v1/verify.mjs tests/release-trust-registry-v1.test.mjs tools/release-assurance-v1/verify.mjs tests/release-assurance-v1.test.mjs; do
+            expected="$(git rev-parse "HEAD:$p")"
+            actual="$(git hash-object --no-filters "$p")"
+            test "$actual" = "$expected"
+            echo "EXACT_ORIGINAL_SOURCE_BLOB $p $actual"
+          done
+          echo "EXACT_HEAD=$EXPECTED_HEAD"
+          echo "EXACT_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Install pinned Node 22.20.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Install isolated PostgreSQL driver for non-authorizing tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          node -e "const p=require('./tools/release-ledger-service-v1/package.json'); if(p.dependencies.pg!=='8.16.3'||p.private!==true)process.exit(1)"
+          npm install --prefix tools/release-ledger-service-v1 --ignore-scripts --no-audit --no-fund --no-package-lock
+      - name: Run exact-head Node suites including real PostgreSQL and HTTP concurrency
+        env:
+          ATTO_LEDGER_TEST_PG_URL: postgresql://attotest:localtestpassword@127.0.0.1:5432/atto_ledger_test
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in tools/release-ledger-service-v1/protocol.mjs tools/release-ledger-service-v1/client.mjs tools/release-ledger-service-v1/postgres.mjs tools/release-ledger-service-v1/server.mjs tests/release-ledger-service-v1.test.mjs tests/release-ledger-service-v1-pg.test.mjs; do
+            node --check "$f"
+          done
+          node --test tests/release-assurance-v1.test.mjs tests/release-trust-registry-v1.test.mjs tests/release-checkpoint-v1.test.mjs tests/release-ledger-v1.test.mjs tests/release-ledger-service-v1.test.mjs tests/release-ledger-service-v1-pg.test.mjs | tee "$RUNNER_TEMP/atto-pg-service-test.tap"
+          node --input-type=module - "$RUNNER_TEMP/atto-pg-service-test.tap" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const lines=readFileSync(process.argv[2],'utf8').split(/\r?\n/);
+          const count=k=>{
+            const prefix='# '+k+' ';
+            const found=lines.filter(x=>x.startsWith(prefix));
+            if(found.length!==1||!/^[0-9]+$/.test(found[0].slice(prefix.length)))
+              throw Error('MISSING_OR_DUPLICATE_TEST_METRIC_'+k);
+            return Number(found[0].slice(prefix.length));
+          };
+          const total=count('tests'),passed=count('pass'),failed=count('fail');
+          const skipped=count('skipped'),cancelled=count('cancelled');
+          if(total<450||total!==passed||failed!==0||skipped!==0||cancelled!==0)
+            throw Error('POSTGRES_NATIVE_GUEST_TEST_EXECUTION_INSUFFICIENT');
+          console.log('ATTO_PG_NATIVE_TEST_PASS='+passed);
+          NODE
+          echo "AUTHENTICATED_DIAGNOSTIC_CAS_ONLY: release_authorized=false; no separate root/approval/guest provenance or external quorum"

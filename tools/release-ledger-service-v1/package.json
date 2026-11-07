@@ -1,0 +1,10 @@
+{
+  "name": "@atto/release-ledger-service-v1",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Non-authorizing loopback-only PostgreSQL release-ledger diagnostic service",
+  "dependencies": {
+    "pg": "8.16.3"
+  }
+}
