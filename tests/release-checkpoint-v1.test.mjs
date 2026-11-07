@@ -236,3 +236,70 @@ test('standalone CLI uses 3 for local, 1 for rejected chain, 2 for unsafe file',
   const unsafeHard=runCli([...args.slice(0,1),hard,...args.slice(2)]);
   assert.equal(unsafeHard.status,2,unsafeHard.stderr);
 });
+
+
+// Phase 2: delegated signing authority must remain valid for the *entire*
+// asserted evidence window, not merely at the verifier's current instant.
+// Each of the following was previously accepted as a local candidate.
+const lifetimeRegressions = [
+  ['checkpoint outlives governance signing delegation',
+    {policyEdit:p=>p.keys[1].not_after='2026-11-07T00:02:00Z'}],
+  ['intent outlives release-approval delegation',
+    {policyEdit:p=>p.keys[2].not_after='2026-11-07T00:02:00Z'}],
+  ['intent outlives candidate signing delegation',
+    {policyEdit:p=>p.keys[0].not_after='2026-11-07T00:02:00Z'}],
+  ['checkpoint outlives scheduled governance revocation',
+    {policyEdit:p=>p.keys[1].revoked_at='2026-11-07T00:02:00Z'}],
+  ['intent outlives scheduled release-approval revocation',
+    {policyEdit:p=>p.keys[2].revoked_at='2026-11-07T00:02:00Z'}],
+  ['intent outlives scheduled candidate-signer revocation',
+    {policyEdit:p=>p.keys[0].revoked_at='2026-11-07T00:02:00Z'}],
+  ['intent outlives governance checkpoint',
+    {checkpointEdit:c=>c.expires_at='2026-11-07T00:02:00Z'}],
+  ['checkpoint and intent outlive root-signed registry',
+    {policyEdit:p=>{
+      p.not_after='2026-11-07T00:02:00Z';
+      for(const k of p.keys)k.not_after='2026-11-07T00:02:00Z';
+    }}],
+];
+for(const [name, options] of lifetimeRegressions)
+  test('deny lifetime boundary: '+name,()=>denied(options));
+
+test('allowed exclusive expiry equality: checkpoint and intent finish with delegations',()=>{
+  const v=run({policyEdit:p=>{
+    for(const k of p.keys)k.not_after='2026-11-07T00:04:00Z';
+  },checkpointEdit:c=>c.expires_at='2026-11-07T00:04:00Z'});
+  assert.equal(v.classification,'SEQUENCE_LINKED_LOCAL_CANDIDATE',JSON.stringify(v));
+  assert.equal(v.release_authorized,false);
+  assert.equal(v.ledger_cas_committed,false);
+});
+
+test('allowed exclusive revocation equality at the end of checkpoint and intent',()=>{
+  const v=run({policyEdit:p=>{
+    for(const k of p.keys)k.revoked_at='2026-11-07T00:04:00Z';
+  },checkpointEdit:c=>c.expires_at='2026-11-07T00:04:00Z'});
+  assert.equal(v.classification,'SEQUENCE_LINKED_LOCAL_CANDIDATE',JSON.stringify(v));
+  assert.equal(v.release_authorized,false);
+});
+
+for(const field of ['schema','repository','policy_id','policy_sequence',
+ 'registry_sha256','ledger_id','last_sequence','last_intent_sha256',
+ 'last_nonce','observed_at','expires_at']) {
+  test('missing signed checkpoint field: '+field,()=>denied({
+    checkpointEdit:c=>{delete c[field];}
+  }));
+}
+for(const field of ['schema','repository','head_sha','tree_sha',
+ 'artifact_sha256','candidate_envelope_sha256','policy_id','policy_sequence',
+ 'registry_sha256','ledger_id','sequence','previous_intent_sha256',
+ 'nonce','issued_at','expires_at']) {
+  test('missing signed intent field: '+field,()=>denied({
+    intentEdit:i=>{delete i[field];}
+  }));
+}
+for(const field of ['schema','checkpoint_sha256','intent_sha256','ledger_id',
+ 'next_sequence','previous_intent_sha256']) {
+  test('missing externally pinned ledger field: '+field,()=>denied({
+    pinEdit:p=>{delete p[field];}
+  }));
+}
