@@ -1,6 +1,7 @@
 // Source-free, advisory-only merge-wave admission model. Not a GitHub authorization engine.
 const SHA = /^[a-f0-9]{40}$/;
-const REPO = /^ores-truffle-oreslang\/[a-zA-Z0-9_.-]+$/;
+const REPO = /^ores-truffle-oreslang\/[a-zA-Z0-9_.-]+$/i;
+const ACCOUNT = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
 const TERMINAL = new Set(['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED', 'COMMENTED']);
 const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 function validTimestamp(value) {
@@ -30,12 +31,12 @@ export function qualifyWave(snapshot, now = new Date().toISOString()) {
   const distinct = new Set(), repos = new Set();
   snapshot.candidates.forEach((p, i) => {
     if (!record(p) || !REPO.test(p.repo || '') || !positive(p.number) ||
-        typeof p.author !== 'string' || !p.author.trim()) {
+        typeof p.author !== 'string' || !ACCOUNT.test(p.author)) {
       reject('BAD_PR_IDENTITY', i); return;
     }
-    const identity = p.repo + '#' + p.number;
+    const identity = p.repo.toLowerCase() + '#' + p.number;
     if (distinct.has(identity)) reject('DUPLICATE_PR', i);
-    distinct.add(identity); repos.add(p.repo);
+    distinct.add(identity); repos.add(p.repo.toLowerCase());
     if (p.state !== 'open' || p.draft !== false) reject('NOT_READY', i);
     if (p.mergeable !== true || p.conflict_free !== true) reject('MERGE_CONFLICT_OR_UNKNOWN', i);
     if (p.active_agent_lease !== false) reject('ACTIVE_OR_UNKNOWN_LEASE', i);
@@ -59,27 +60,28 @@ export function qualifyWave(snapshot, now = new Date().toISOString()) {
       const latest = new Map(), outstanding = new Set();
       let malformed = false;
       for (const review of p.reviews) {
-        if (!record(review) || typeof review.user !== 'string' || !review.user.trim() ||
+        if (!record(review) || typeof review.user !== 'string' || !ACCOUNT.test(review.user) ||
             !TERMINAL.has(review.state) || !validTimestamp(review.submitted_at) ||
             typeof review.commit_id !== 'string' || !SHA.test(review.commit_id)) {
           malformed = true; break;
         }
         if (Date.parse(review.submitted_at) > observed) { malformed = true; break; }
-        const prior = latest.get(review.user);
+        const reviewer = review.user.toLowerCase();
+        const prior = latest.get(reviewer);
         if (prior && review.submitted_at < prior.submitted_at) { malformed = true; break; }
-        if (review.state === 'CHANGES_REQUESTED') outstanding.add(review.user);
+        if (review.state === 'CHANGES_REQUESTED') outstanding.add(reviewer);
         // A comment cannot cancel requested changes: require a later verified approval.
         if (review.state === 'APPROVED' && review.commit_id === p.head_sha &&
-            review.verified_independent === true) outstanding.delete(review.user);
-        latest.set(review.user, review);
+            review.verified_independent === true) outstanding.delete(reviewer);
+        latest.set(reviewer, review);
       }
       if (malformed) reject('MALFORMED_REVIEW_TIMELINE', i);
       else {
-        const independent = [...latest.values()].filter(r =>
-          r.user !== p.author && r.state === 'APPROVED' && r.commit_id === p.head_sha &&
+        const independent = [...latest.entries()].filter(([user, r]) =>
+          user !== p.author.toLowerCase() && r.state === 'APPROVED' && r.commit_id === p.head_sha &&
           r.verified_independent === true);
         if (independent.length === 0) reject('NO_CURRENT_INDEPENDENT_APPROVAL', i);
-        if ([...outstanding].some(user => user !== p.author)) {
+        if ([...outstanding].some(user => user !== p.author.toLowerCase())) {
           reject('OUTSTANDING_CHANGES_REQUESTED', i);
         }
       }
