@@ -1,0 +1,72 @@
+name: Source-free branch governance audit v1
+
+on:
+  pull_request:
+    paths:
+      - 'tools/branch-governance-audit-v1/**'
+      - 'tests/branch-governance-audit-v1.test.mjs'
+      - 'docs/BRANCH_GOVERNANCE_AUDIT_V1.md'
+      - '.github/workflows/branch-governance-audit-v1.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/branch-governance-audit-v1/**'
+      - 'tests/branch-governance-audit-v1.test.mjs'
+      - 'docs/BRANCH_GOVERNANCE_AUDIT_V1.md'
+      - '.github/workflows/branch-governance-audit-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout immutable original PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify physical checked-out source identity, not a synthetic merge
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          for file in \
+            tools/branch-governance-audit-v1/verify.mjs \
+            tests/branch-governance-audit-v1.test.mjs \
+            docs/BRANCH_GOVERNANCE_AUDIT_V1.md \
+            .github/workflows/branch-governance-audit-v1.yml; do
+            test -f "$file" && test ! -L "$file"
+            test "$(git rev-parse "HEAD:$file")" = "$(git hash-object -- "$file")"
+          done
+          printf 'EXACT_SOURCE_HEAD=%s\n' "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}' | sed 's/^/EXACT_SOURCE_TREE=/'
+      - name: Set up pinned Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Check syntax of governance audit and tests
+        run: |
+          node --check tools/branch-governance-audit-v1/verify.mjs
+          node --check tests/branch-governance-audit-v1.test.mjs
+      - name: Execute read-only synthetic adversarial policy tests
+        run: node --test tests/branch-governance-audit-v1.test.mjs
+      - name: Assert live CLI with no admin credentials fails closed
+        env:
+          GH_TOKEN: ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=0
+          node tools/branch-governance-audit-v1/verify.mjs > admission.json || code=$?
+          test "$code" -eq 2
+          grep -Fq '"status":"ADMIN_TOKEN_REQUIRED"' admission.json
+          grep -Fq '"release_authorized":false' admission.json
+          rm admission.json
+          echo 'HOST_ONLY_POLICY_TESTS_PASS - NO ADMIN API, NO PRIVATE SOURCE, NO RELEASE AUTHORIZATION'
