@@ -49,3 +49,7 @@ verifyExternalSignature(candidate_sha256, dsse_envelope, externally_pinned_ancho
 Source-owned Node 22 tests cover four-repo policy identity, hostile fork/PR/base/head/tree/ruleset/review/check-run/workflow/runner failures, denied administrative protection reads, pagination and replay ambiguities, and real ephemeral Ed25519 sign/verify negative controls. PR CI checks out original exact HEAD, validates physical blob IDs and executes public tests. These are source-free HOST tests only.
 
 This DOES NOT establish a trustworthy deployment, authoritative timestamps, human reviewer independence, transitive dependency audit, actual atomic GitHub merge, real protected branches, private compiler guest parity or release authority. No private code may be mirrored into public GitHub CI.
+
+## Stream-bound API hardening
+
+The GitHub GET implementation now limits content length and consumed response chunks to 2 MiB BEFORE materializing a full response, decodes strict UTF-8 and rejects invalid JSON, HTTP errors, unsupported request paths, and redirects. On-PR tests inject only inert Response objects, never an administrator token or live network request. A separate trusted deployment must still pin HTTPS/TLS trust and review any dependency changes before permitting credentials.

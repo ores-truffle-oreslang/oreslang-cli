@@ -19,12 +19,13 @@ function requireUniqueIds(list,name) {
   }
   return list;
 }
-export function githubGetter(token) {
+export function githubGetter(token,fetcher=fetch) {
   if (typeof token !== 'string' || token.length < 10) throw Error('MISSING_ADMIN_READ_TOKEN');
+  if (typeof fetcher !== 'function') throw Error('INVALID_READ_ONLY_FETCHER');
   return async path => {
     if (typeof path !== 'string' || !path.startsWith('/repos/ores-truffle-oreslang/') ||
         path.includes('..') || path.includes('//') || /[^\x21-\x7e]/.test(path)) throw Error('UNTRUSTED_API_PATH');
-    const response = await fetch('https://api.github.com' + path, {
+    const response = await fetcher('https://api.github.com' + path, {
       method:'GET', redirect:'error',
       headers: {
         authorization:'Bearer ' + token,
@@ -35,9 +36,29 @@ export function githubGetter(token) {
       signal:AbortSignal.timeout(10000)
     });
     if (!response.ok) throw Error('API_READ_FAILED_' + response.status);
-    const buffer = await response.arrayBuffer();
-    if (buffer.byteLength > 2*1024*1024) throw Error('API_RESPONSE_TOO_LARGE');
-    return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(buffer));
+    const MAX=2*1024*1024;
+    const contentLength=response.headers?.get?.('content-length');
+    if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength)>MAX) throw Error('API_RESPONSE_TOO_LARGE');
+    const reader=response.body?.getReader?.();
+    if (!reader) throw Error('API_BODY_UNAVAILABLE');
+    let size=0;
+    const chunks=[];
+    try {
+      while (true) {
+        const part=await reader.read();
+        if (part.done) break;
+        if (!(part.value instanceof Uint8Array)) throw Error('INVALID_API_BODY_CHUNK');
+        size+=part.value.byteLength;
+        if (size>MAX) {
+          await reader.cancel();
+          throw Error('API_RESPONSE_TOO_LARGE');
+        }
+        chunks.push(Buffer.from(part.value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks,size)));
   };
 }
 export async function captureEvidence(repo,prNumber,get) {

@@ -108,6 +108,7 @@ for(const repo of repositories) {
     ['REQUIRED_CHECKS_OR_ISSUER_NOT_ENFORCED',s=>{s.protection.required_status_checks.checks[0].app_id=1;}],
     ['REQUIRED_CHECKS_OR_ISSUER_NOT_ENFORCED',s=>{s.protection.required_status_checks.checks.push({context:'fake',app_id:15368});}],
     ['REQUIRED_CHECKS_OR_ISSUER_NOT_ENFORCED',s=>{s.protection.required_status_checks.contexts=['evil'];}],
+    ['REQUIRED_CHECKS_OR_ISSUER_NOT_ENFORCED',s=>{const n=policyFor(repo).jobs[0];s.protection.required_status_checks.contexts=[n,n];}],
     ['GOVERNANCE_POLICY_NOT_ENFORCED',s=>{s.protection.enforce_admins.enabled=false;}],
     ['GOVERNANCE_POLICY_NOT_ENFORCED',s=>{s.protection.required_pull_request_reviews.required_approving_review_count=0;}],
     ['GOVERNANCE_POLICY_NOT_ENFORCED',s=>{s.protection.required_pull_request_reviews.dismiss_stale_reviews=false;}],
@@ -307,4 +308,44 @@ test('separate key with arbitrary self-chosen keyid cannot impersonate trusted s
   const other=generateKeyPairSync('ed25519'),digest=verifySnapshot(sample()).candidate_sha256,e=envelope(digest);
   e.signatures[0].sig=sign(null,pae(ATTESTATION_PAYLOAD_TYPE,Buffer.from(digest+'\n')),other.privateKey).toString('base64');
   assert.ok(verifyExternalSignature(digest,e,anchor).reasons.includes('BAD_EXTERNAL_SIGNATURE'));
+});
+
+test('GitHub GET boundary consumes only bounded JSON and uses the immutable api.github.com host',async()=>{
+  const token='test-credential-without-network';
+  let requests=[];
+  const get=githubGetter(token,async (url,options)=>{
+    requests.push({url,method:options.method,redirect:options.redirect,auth:options.headers.authorization});
+    return new Response('{"safe":true}',{status:200,headers:{'content-type':'application/json'}});
+  });
+  const r=await get('/repos/ores-truffle-oreslang/oreslang-cli');
+  assert.deepEqual(r,{safe:true});
+  assert.deepEqual(requests,[{url:'https://api.github.com/repos/ores-truffle-oreslang/oreslang-cli',
+    method:'GET',redirect:'error',auth:'Bearer '+token}]);
+});
+test('GitHub GET boundary denies 403 without decoding or trusting an error body',async()=>{
+  const get=githubGetter('test-credential-without-network',async()=>new Response('{"authorized":true}',{status:403}));
+  await assert.rejects(get('/repos/ores-truffle-oreslang/oreslang-cli'),/API_READ_FAILED_403/);
+});
+test('GitHub GET boundary refuses unbounded and explicitly oversized response',async()=>{
+  const oversized=Buffer.alloc(2*1024*1024+1,32);
+  for(const body of [oversized,Buffer.from('{}'.padEnd(2*1024*1024+1,' '))]){
+    const get=githubGetter('test-credential-without-network',
+      async()=>new Response(body,{status:200}));
+    await assert.rejects(get('/repos/ores-truffle-oreslang/oreslang-cli'),/API_RESPONSE_TOO_LARGE/);
+  }
+});
+test('GitHub GET boundary rejects invalid UTF-8 and malformed JSON bytes',async()=>{
+  for(const body of [Buffer.from([0xc0,0xaf]),Buffer.from('{"truncated":')]){
+    const get=githubGetter('test-credential-without-network',async()=>new Response(body,{status:200}));
+    await assert.rejects(get('/repos/ores-truffle-oreslang/oreslang-cli'));
+  }
+});
+test('GitHub GET boundary refuses API URL authority and invalid injected transport',async()=>{
+  assert.throws(()=>githubGetter('test-credential-without-network',null),/INVALID_READ_ONLY_FETCHER/);
+  const get=githubGetter('test-credential-without-network',()=>{throw Error('SHOULD_NOT_SEND_REQUEST');});
+  for(const path of [
+    '/repos/ores-truffle-oreslang/../secrets',
+    '/repos/ores-truffle-oreslang//foreign',
+    '/orgs/ores-truffle-oreslang/secrets'
+  ])await assert.rejects(get(path),/UNTRUSTED_API_PATH/);
 });

@@ -124,6 +124,7 @@ export function verifySnapshot(s) {
       stat.checks.length !== p.jobs.length ||
       p.jobs.some(name => stat.checks.filter(x=>x?.context===name && x.app_id===ACTIONS_APP_ID).length !== 1) ||
       (stat.contexts !== undefined && (!Array.isArray(stat.contexts) ||
+        new Set(stat.contexts).size!==stat.contexts.length ||
         stat.contexts.some(v=>typeof v !== 'string' || !p.jobs.includes(v))))) deny('REQUIRED_CHECKS_OR_ISSUER_NOT_ENFORCED');
   const rv = prot?.required_pull_request_reviews;
   if (prot?.enforce_admins?.enabled !== true ||
