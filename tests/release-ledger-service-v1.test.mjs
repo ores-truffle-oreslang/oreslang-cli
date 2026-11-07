@@ -138,6 +138,10 @@ for(const [name,key,val] of invalid){
   test('invalid claim rejects '+name,()=>{
     const x=claim();x[key]=val;
     assert.equal(validClaim(x),false);
+    if(typeof val==='number' && !Number.isSafeInteger(val)){
+      assert.throws(()=>signed(x));
+      return;
+    }
     const v=verify(signed(x));
     assert.equal(v.ok,false,name+' '+JSON.stringify(v));
     assert.equal(v.release_authorized,false);
@@ -160,7 +164,7 @@ const badBodies=[
  ['object-trailing-space','{"a":1} '],['unsorted-keys','{"z":2,"a":1}'],
  ['duplicate-key','{"a":1,"a":2}'],['duplicate-claim','{"sequence":1,"sequence":2}'],
  ['array','[1,2]'],['null','null'],['number','123'],
- ['boolean','true'],['empty-object','{}'],['nested-extra','{"a":{"c":2,"b":1}}'],
+ ['boolean','true'],['empty-object-trailing-space','{} '],['nested-extra','{"a":{"c":2,"b":1}}'],
  ['float','{"a":1.5}'],['negative-zero','{"a":-0}'],
  ['unicode-escape','{"a":"\\u0061"}'],['slash-escape','{"a":"\\/"}'],
  ['newline','{"a":1}\n'],['utf8-bom','\uFEFF{}'],['comment','{/*a*/}'],
@@ -287,7 +291,7 @@ for(const [name,method,path] of [
 for(const name of ['a','b','c','d','e','f','g','h','i','j']){
   test('signature detects digest substitution '+name,()=>{
     const v=signed();const payload=claim();
-    payload.intent_sha256=name.repeat(64);
+    payload.intent_sha256=(name==='d'?'f':name).repeat(64);
     const changed=Buffer.from(canonical(payload));
     assert.equal(verify(v,{raw:changed}).ok,false);
   });
@@ -348,3 +352,22 @@ for(const [name,method,path] of [
     }finally{await new Promise(resolve=>server.close(resolve));}
   });
 }
+
+test('canonical bare empty object parses but cannot form a signed claim',()=>{
+  assert.deepEqual(parseBody(Buffer.from('{}')),{});
+  const v=signed({});
+  assert.equal(verify(v).ok,false);
+});
+test('zero 256-bit authentication nonce rejected before signing',()=>{
+  assert.throws(()=>signed(claim(),{nonce:ZERO_DIGEST}));
+});
+test('zero 256-bit authentication nonce denied even when MAC is forged manually',()=>{
+  const v=signed();
+  v.headers['x-atto-nonce']=ZERO_DIGEST;
+  assert.equal(verify(v).ok,false);
+});
+test('UTF-8 BOM-prefixed canonical claim denied even with client MAC over bytes',()=>{
+  const v=signed();
+  const raw=Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),v.raw]);
+  assert.equal(verify(v,{raw}).ok,false);
+});

@@ -61,7 +61,7 @@ export const macFor=({secret,method,path,client,timestamp,nonce,body})=>{
   const k=Buffer.isBuffer(secret)?secret:normalizeSecret(secret);
   if(k.length!==32||!['POST'].includes(method)||!['/v1/claim','/v1/receipt'].includes(path)||
     !validClient(client)||!Number.isSafeInteger(timestamp)||timestamp<=0||
-    !hex64(nonce)||typeof body!=='string')
+    !hex64(nonce)||nonce===ZERO||typeof body!=='string')
     throw Error('INVALID_SIGNING_INPUT');
   return createHmac('sha256',k).update(reqLine(method,path,client,
     String(timestamp),nonce,hash(Buffer.from(body,'utf8')))).digest('hex');
@@ -69,7 +69,7 @@ export const macFor=({secret,method,path,client,timestamp,nonce,body})=>{
 export function parseBody(input){
   if(!Buffer.isBuffer(input)||input.length<2||input.length>MAX_BODY)
     throw Error('MISSING_OR_OVERSIZE_BODY');
-  const value=new TextDecoder('utf-8',{fatal:true}).decode(input);
+  const value=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(input);
   const parsed=JSON.parse(value);
   if(!isRecord(parsed)||canonical(parsed)!==value)throw Error('NONCANONICAL_BODY');
   return parsed;
@@ -97,7 +97,7 @@ export function checkAuth({headers,rawHeaders,method,path,rawBody,secret,
     const nonce=map.get('x-atto-nonce');
     const mac=map.get('x-atto-mac');
     if(!validClient(client)||client!==expectedClient||
-      !/^[1-9][0-9]{0,11}$/.test(ts)||!hex64(nonce)||!hex64(mac))
+      !/^[1-9][0-9]{0,11}$/.test(ts)||!hex64(nonce)||nonce===ZERO||!hex64(mac))
       throw Error('INVALID_CLIENT_OR_NONCE');
     const timestamp=Number(ts);
     if(!Number.isSafeInteger(timestamp)||!Number.isSafeInteger(nowSeconds)||
