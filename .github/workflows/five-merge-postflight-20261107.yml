@@ -1,0 +1,38 @@
+name: Five-merge postflight verifier (source-free, non-promoting)
+on:
+  pull_request:
+    paths:
+      - 'tools/five-merge-postflight-20261107.mjs'
+      - 'tests/five-merge-postflight-20261107.test.mjs'
+      - '.github/workflows/five-merge-postflight-20261107.yml'
+      - 'docs/FIVE_MERGE_POSTFLIGHT_20261107.md'
+  push:
+    paths:
+      - 'tools/five-merge-postflight-20261107.mjs'
+      - 'tests/five-merge-postflight-20261107.test.mjs'
+      - '.github/workflows/five-merge-postflight-20261107.yml'
+      - 'docs/FIVE_MERGE_POSTFLIGHT_20261107.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deterministic-host-controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact original source checkout
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain --untracked-files=normal)"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Execute source-free fail-closed negative controls
+        run: node --test tests/five-merge-postflight-20261107.test.mjs
