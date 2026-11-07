@@ -410,3 +410,86 @@ scoped('tampered candidate or artifact rejected before local mutation',({file})=
   denied(consumeSignedIntent(file,f));
   assert.equal(readLocalLedger(file,LEDGER).sequence,0);
 });
+
+
+// Phase 2 audit: a ledger is a single repository-scoped monotonic policy
+// history, not a bag of independently acceptable signed candidates.
+function secondAgainstCommittedFirst(file,change){
+  const first=consumeLocalAdvisoryClaim(file,snapshot(),claim(1));
+  assert.equal(first.classification,'LOCAL_LEDGER_CAS_COMMITTED');
+  const current=readLocalLedger(file,LEDGER);
+  const pin={ledger_id:current.ledger_id,sequence:current.sequence,
+    last_intent_sha256:current.last_intent_sha256,last_nonce:current.last_nonce};
+  const next=claim(2);next.sequence=2;
+  next.previous_intent_sha256=pin.last_intent_sha256;
+  change(next,pin);
+  const verdict=consumeLocalAdvisoryClaim(file,pin,next);
+  return {verdict,after:readLocalLedger(file,LEDGER)};
+}
+scoped('deny policy generation rollback after existing release',({file})=>{
+  const {verdict,after}=secondAgainstCommittedFirst(file,c=>{c.policy_sequence=7;});
+  denied(verdict);
+  assert.equal(after.sequence,1);
+});
+scoped('deny zero or lower policy generation after a different first policy',({file})=>{
+  const {verdict,after}=secondAgainstCommittedFirst(file,c=>{c.policy_sequence=1;});
+  denied(verdict);
+  assert.equal(after.sequence,1);
+});
+scoped('deny same ledger identity reused by another repository',({file})=>{
+  const {verdict,after}=secondAgainstCommittedFirst(file,c=>{
+    c.repository='ores-truffle-oreslang/other-cli';
+  });
+  denied(verdict);
+  assert.equal(after.sequence,1);
+});
+scoped('deny case-different repository alias across ledger history',({file})=>{
+  const {verdict,after}=secondAgainstCommittedFirst(file,c=>{
+    c.repository='ores-truffle-oreslang/Oreslang-cli';
+  });
+  denied(verdict);
+  assert.equal(after.sequence,1);
+});
+scoped('postcommit observer exception must not misreport a consumed claim as DENIED',({file})=>{
+  const v=consumeLocalAdvisoryClaim(file,snapshot(),claim(),phase=>{
+    if(phase==='AFTER_COMMIT')throw Error('observer post-commit failure');
+  });
+  assert.equal(v.classification,'LOCAL_LEDGER_CAS_COMMITTED',JSON.stringify(v));
+  assert.equal(v.release_authorized,false);
+  assert.equal(readLocalLedger(file,LEDGER).sequence,1);
+});
+scoped('postcommit file permission drift cannot be classified as clean precommit rejection',({file})=>{
+  const v=consumeLocalAdvisoryClaim(file,snapshot(),claim(),phase=>{
+    if(phase==='AFTER_COMMIT')chmodSync(file,0o644);
+  });
+  assert.notEqual(v.classification,'DENIED',JSON.stringify(v));
+  assert.equal(v.release_authorized,false);
+  chmodSync(file,0o600);
+  assert.equal(readLocalLedger(file,LEDGER).sequence,1);
+});
+scoped('historical row policy decrease detected on ledger reopen',({file})=>{
+  let first=consumeLocalAdvisoryClaim(file,snapshot(),claim(1));
+  assert.equal(first.ledger_cas_committed,true);
+  const current=readLocalLedger(file,LEDGER);
+  const c=claim(2);c.sequence=2;c.previous_intent_sha256=current.last_intent_sha256;
+  c.policy_sequence=9;
+  const pin={ledger_id:current.ledger_id,sequence:current.sequence,
+    last_intent_sha256:current.last_intent_sha256,last_nonce:current.last_nonce};
+  assert.equal(consumeLocalAdvisoryClaim(file,pin,c).ledger_cas_committed,true);
+  const db=new DatabaseSync(file);
+  db.prepare('UPDATE ledger_events SET policy_sequence=? WHERE sequence=?').run(7,2);
+  db.close();
+  denied(readLocalLedger(file,LEDGER));
+});
+scoped('historical row cross-repository pivot detected on ledger reopen',({file})=>{
+  assert.equal(consumeLocalAdvisoryClaim(file,snapshot(),claim(1)).ledger_cas_committed,true);
+  const current=readLocalLedger(file,LEDGER);
+  const c=claim(2);c.sequence=2;c.previous_intent_sha256=current.last_intent_sha256;
+  const pin={ledger_id:current.ledger_id,sequence:current.sequence,
+    last_intent_sha256:current.last_intent_sha256,last_nonce:current.last_nonce};
+  assert.equal(consumeLocalAdvisoryClaim(file,pin,c).ledger_cas_committed,true);
+  const db=new DatabaseSync(file);
+  db.prepare('UPDATE ledger_events SET repository=? WHERE sequence=?').run('ores-truffle-oreslang/other-cli',2);
+  db.close();
+  denied(readLocalLedger(file,LEDGER));
+});
