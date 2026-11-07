@@ -8,7 +8,7 @@ branch:{name:'main',protected:true,commit:{sha:t.merge}},
 protection:{enforce_admins:{enabled:true},required_status_checks:{strict:true},required_pull_request_reviews:{required_approving_review_count:1,require_code_owner_reviews:true,dismiss_stale_reviews:true}},
 rulesets:[],compare:{status:'identical',behind_by:0,base_commit:{sha:t.merge}},
 run:{id:t.run,event:'push',head_sha:t.merge,status:'completed',conclusion:'success',run_attempt:1},
-jobs:{total_count:1,jobs:[{status:'completed',conclusion:'success',steps:[{name:'Test',status:'completed',conclusion:'success'}]}]},
+jobs:{total_count:1,jobs:[{id:99,name:'test',run_id:t.run,run_attempt:1,runner_id:42,status:'completed',conclusion:'success',steps:[{number:1,name:'Test',status:'completed',conclusion:'success'}]}]},
 reviews:[{user:{id:22},state:'APPROVED',commit_id:t.head,submitted_at:'2026-11-07T00:10:00Z'}]
 };
 }
@@ -58,4 +58,69 @@ for(const [mutate,code] of [
 test('empty/untrusted evidence is never green',()=>{
 const e=evaluateWave({});assert.equal(e.verdict,'BLOCKED');assert.equal(e.records.length,5);
 for(const r of e.records)assert.ok(r.failures.length>=3);
+});
+
+
+// Each case is independently reported; even a historically qualified-looking
+// snapshot must remain BLOCKED and expose the specific missing evidence.
+const reviewMutations=[
+ ['approval later dismissed',e=>e.reviews.push({user:{id:22},state:'DISMISSED',commit_id:WAVE[0].head,submitted_at:'2026-11-07T00:12:00Z'})],
+ ['approval followed by changes requested',e=>e.reviews.push({user:{id:22},state:'CHANGES_REQUESTED',commit_id:WAVE[0].head,submitted_at:'2026-11-07T00:12:00Z'})],
+ ['approval followed by comment',e=>e.reviews.push({user:{id:22},state:'COMMENTED',commit_id:WAVE[0].head,submitted_at:'2026-11-07T00:12:00Z'})],
+ ['approval then new-head review',e=>e.reviews.push({user:{id:22},state:'APPROVED',commit_id:'f'.repeat(40),submitted_at:'2026-11-07T00:12:00Z'})],
+ ['author impersonates independent reviewer',e=>e.reviews[0].user.id=e.pr.user.id],
+ ['missing reviewer identity',e=>e.reviews[0].user={}],
+ ['zero reviewer ID',e=>e.reviews[0].user.id=0],
+ ['noninteger reviewer ID',e=>e.reviews[0].user.id='22'],
+ ['invalid review state',e=>e.reviews[0].state='PENDING'],
+ ['missing review source head',e=>delete e.reviews[0].commit_id],
+ ['incorrect review source SHA',e=>e.reviews[0].commit_id='f'.repeat(40)],
+ ['approval after merge',e=>e.reviews[0].submitted_at='2026-11-07T00:55:00Z'],
+ ['invalid Gregorian leap day',e=>e.reviews[0].submitted_at='2026-02-29T00:00:00Z'],
+ ['invalid February 30 normalization',e=>e.reviews[0].submitted_at='2026-02-30T00:00:00Z'],
+ ['impossible hour 24',e=>e.reviews[0].submitted_at='2026-11-07T24:00:00Z'],
+ ['leap second 60',e=>e.reviews[0].submitted_at='2026-11-07T00:00:60Z'],
+ ['timezone normalization',e=>e.reviews[0].submitted_at='2026-11-07T00:10:00+00:00'],
+ ['missing review time',e=>delete e.reviews[0].submitted_at],
+ ['duplicate equal timestamp',e=>e.reviews.push({...e.reviews[0],state:'COMMENTED'})],
+ ['missing review list',e=>delete e.reviews],
+ ['missing historical merged timestamp',e=>delete e.pr.merged_at],
+ ['invalid historical merge calendar day',e=>e.pr.merged_at='2026-02-30T00:00:00Z'],
+];
+for(const [name,mutate] of reviewMutations)test('review timeline rejects '+name,()=>{
+ const e=fixture();mutate(e);denied(e,'INDEPENDENT_PRE_MERGE_APPROVAL_ABSENT');
+ assert.equal(evaluateEvidence(WAVE[0],e).verdict,'BLOCKED');
+});
+const jobMutations=[
+ ['missing runner',e=>delete e.jobs.jobs[0].runner_id],
+ ['zero runner',e=>e.jobs.jobs[0].runner_id=0],
+ ['string runner',e=>e.jobs.jobs[0].runner_id='42'],
+ ['missing run identity',e=>delete e.jobs.jobs[0].run_id],
+ ['wrong run identity',e=>e.jobs.jobs[0].run_id=5],
+ ['wrong run attempt',e=>e.jobs.jobs[0].run_attempt=2],
+ ['missing run attempt',e=>delete e.jobs.jobs[0].run_attempt],
+ ['duplicate job ID',e=>{e.jobs.jobs.push({...e.jobs.jobs[0]});e.jobs.total_count=2;}],
+ ['duplicate job name',e=>{e.jobs.jobs.push({...e.jobs.jobs[0],id:100});e.jobs.total_count=2;}],
+ ['partial successful job plus failed',e=>{e.jobs.jobs.push({...e.jobs.jobs[0],id:100,name:'failed',conclusion:'failure'});e.jobs.total_count=2;}],
+ ['zero-step companion',e=>{e.jobs.jobs.push({...e.jobs.jobs[0],id:100,name:'empty',steps:[]});e.jobs.total_count=2;}],
+ ['failed test step',e=>e.jobs.jobs[0].steps[0].conclusion='failure'],
+ ['skipped test step',e=>e.jobs.jobs[0].steps[0].conclusion='skipped'],
+ ['setup-only CI',e=>e.jobs.jobs[0].steps[0].name='Set up job'],
+ ['invalid job status',e=>e.jobs.jobs[0].status='queued'],
+ ['unrecorded job pagination',e=>e.jobs.total_count=2],
+ ['empty job collection',e=>{e.jobs.jobs=[];e.jobs.total_count=0;}],
+];
+for(const [name,mutate] of jobMutations)test('executed CI receipt rejects '+name,()=>{
+ const e=fixture();mutate(e);denied(e,'MEANINGFUL_EXECUTED_TEST_UNVERIFIED');
+ assert.equal(evaluateEvidence(WAVE[0],e).verdict,'BLOCKED');
+});
+test('latest valid independent approval alone is still not release certification',()=>{
+ const e=fixture();
+ e.reviews.push({user:{id:22},state:'COMMENTED',commit_id:WAVE[0].head,submitted_at:'2026-11-07T00:06:00Z'});
+ assert.deepEqual(failures(e),['HISTORICAL_ENFORCEMENT_AND_RELEASE_RECERTIFICATION_REQUIRED']);
+});
+test('changes requested by another reviewer remains an explicit blocker',()=>{
+ const e=fixture();
+ e.reviews.push({user:{id:55},state:'CHANGES_REQUESTED',commit_id:WAVE[0].head,submitted_at:'2026-11-07T00:13:00Z'});
+ denied(e,'OUTSTANDING_CHANGES_REQUESTED');
 });
