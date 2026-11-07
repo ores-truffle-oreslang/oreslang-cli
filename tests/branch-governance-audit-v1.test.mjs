@@ -232,8 +232,18 @@ test('missing admin token and unsupported args deny before network or code-zero'
   assert.equal(code,2);
   assert.match(output,/ADMIN_TOKEN_REQUIRED/);
   assert.doesNotMatch(output,/super-secret/);
+  assert.deepEqual(Object.fromEntries(Object.entries(JSON.parse(output)).filter(([key]) =>
+    key.endsWith('_authorized'))), {
+      merge_authorized:false, release_authorized:false,
+      private_source_export_authorized:false
+    });
+  output='';
+  assert.equal(await main([],{GH_TOKEN:'  '},write),2);
+  assert.match(output,/ADMIN_TOKEN_REQUIRED/);
   output='';
   assert.equal(await main(['--repo','external/private'],{GH_TOKEN:'x'},write),2);
+  assert.equal(JSON.parse(output).merge_authorized,false);
+  assert.equal(JSON.parse(output).private_source_export_authorized,false);
   const result=spawnSync(process.execPath,[fileURLToPath(new URL('../tools/branch-governance-audit-v1/verify.mjs',import.meta.url))],
     {encoding:'utf8',env:{PATH:process.env.PATH}});
   assert.equal(result.status,2);
