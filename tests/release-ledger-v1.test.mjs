@@ -307,8 +307,8 @@ test('world-readable directory cannot bootstrap ledger',()=>{
 test('CLI rejects usage, never returns a release-authorized exit zero',()=>{
   const v=spawnSync(process.execPath,[worker],{encoding:'utf8'});
   assert.equal(v.status,2);
-  const firstJson=v.stderr.split(/\r?
-/).find(s=>s.startsWith('{'));\n  assert.equal(JSON.parse(firstJson).release_authorized,false);
+  const firstJson=v.stderr.split(String.fromCharCode(10)).find(s=>s.startsWith('{'));
+  assert.equal(JSON.parse(firstJson).release_authorized,false);
 });
 
 // Full in-memory synthetic signature fixture bridges #153 + #154 + #159
