@@ -1,0 +1,29 @@
+name: CLI CODEOWNERS policy (source-free, non-promoting)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  codeowners-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Verify original head, index flags and every raw physical Git blob
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/verify_cli_ci_checkout_20261107.mjs
+      - name: Execute adversarial source-integrity and ownership tests
+        run: node --test tests/verify_cli_ci_checkout_20261107.test.mjs tests/cli-codeowners-policy-20261107.test.mjs
