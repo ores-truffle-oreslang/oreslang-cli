@@ -1,0 +1,47 @@
+name: Advisory five-PR three-repo preflight regression v1
+on:
+  pull_request:
+    paths:
+      - 'tools/merge-wave-preflight-v1/**'
+      - 'tests/merge-wave-preflight-v1.test.mjs'
+      - '.github/workflows/merge-wave-preflight-v1.yml'
+      - 'docs/MERGE_WAVE_PREFLIGHT_V1.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-free-merge-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout immutable original PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Preflight exact original head and clean checkout
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "EXACT_SOURCE_HEAD=$EXPECTED_HEAD"
+          echo "EXACT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+          git hash-object tools/merge-wave-preflight-v1/qualify.mjs
+          git hash-object tests/merge-wave-preflight-v1.test.mjs
+      - name: Use pinned Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          check-latest: false
+      - name: Syntax and source-free adversarial matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          node --check tools/merge-wave-preflight-v1/qualify.mjs
+          node --check tests/merge-wave-preflight-v1.test.mjs
+          node --test --test-reporter=spec tests/merge-wave-preflight-v1.test.mjs
