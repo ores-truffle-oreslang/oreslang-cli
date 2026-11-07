@@ -115,10 +115,16 @@ function state(db,id){
   const events=db.prepare('SELECT * FROM ledger_events WHERE ledger_id=? ORDER BY sequence')
     .all(id);
   if(events.length!==s.sequence||events.length>MAX)throw Error('BROKEN_EVENT_COUNT');
-  let prev=ZERO;
+  let prev=ZERO, repoScope=null, policyFloor=0;
   for(const [i,e] of events.entries()){
     if(!claimValid(e)||e.sequence!==i+1||e.ledger_id!==id||
       e.previous_intent_sha256!==prev)throw Error('BROKEN_EVENT_CHAIN');
+    // A logical release ledger cannot change ownership or roll back its
+    // governing policy generation at a later committed sequence.
+    if(repoScope!==null && (e.repository!==repoScope||
+       e.policy_sequence<policyFloor))
+      throw Error('BROKEN_LEDGER_SCOPE_OR_POLICY_MONOTONICITY');
+    repoScope=e.repository;policyFloor=e.policy_sequence;
     prev=e.intent_sha256;
   }
   if(s.last_intent_sha256!==prev||
@@ -167,6 +173,9 @@ export function consumeLocalAdvisoryClaim(file,pin,claim,onStep) {
       claim.sequence!==pin.sequence+1||
       claim.previous_intent_sha256!==pin.last_intent_sha256||
       claim.nonce===pin.last_nonce)return deny('INVALID_CLAIM_LINK');
+  // A successful COMMIT followed by path drift or observer failure cannot
+  // truthfully be classified as an unconsumed/cleanly DENIED sequence.
+  let sqliteCommitReturned=false;
   try {
     return guarded(file,db=>{
       db.exec('BEGIN IMMEDIATE');
@@ -178,6 +187,16 @@ export function consumeLocalAdvisoryClaim(file,pin,claim,onStep) {
             cur.last_nonce!==pin.last_nonce){
           db.exec('ROLLBACK');begun=false;
           return deny('STALE_HIGH_WATER_PIN');
+        }
+        if(cur.sequence>0){
+          const previous=db.prepare(
+            'SELECT repository,policy_sequence FROM ledger_events WHERE ledger_id=? AND sequence=?'
+          ).get(cur.ledger_id,cur.sequence);
+          if(!previous||claim.repository!==previous.repository||
+              claim.policy_sequence<previous.policy_sequence){
+            db.exec('ROLLBACK');begun=false;
+            return deny('LEDGER_REPOSITORY_OR_POLICY_REGRESSION');
+          }
         }
         // Optional callback is for process-crash fault injection in tests only.
         // Signature-bound consumeSignedIntent does not accept a callback.
@@ -197,17 +216,28 @@ export function consumeLocalAdvisoryClaim(file,pin,claim,onStep) {
           pin.sequence,pin.last_intent_sha256,pin.last_nonce);
         if(update.changes!==1)throw Error('ATOMIC_CAS_FAILED');
         if(onStep)onStep('BEFORE_COMMIT');
-        db.exec('COMMIT');begun=false;
-        if(onStep)onStep('AFTER_COMMIT');
+        db.exec('COMMIT');begun=false;sqliteCommitReturned=true;
+        // Post-commit test hooks are observers only. Their exceptions cannot
+        // undo a committed SQLite transaction or relabel it as clean denial.
+        let postcommit_observer_failed=false;
+        if(onStep)try{onStep('AFTER_COMMIT');}
+          catch{postcommit_observer_failed=true;}
         return result('LOCAL_LEDGER_CAS_COMMITTED',{ledger_cas_committed:true,
           ledger_id:claim.ledger_id,sequence:claim.sequence,
-          intent_sha256:claim.intent_sha256});
+          intent_sha256:claim.intent_sha256,postcommit_observer_failed});
       }catch(e){
         if(begun){try{db.exec('ROLLBACK');}catch{}}
         throw e;
       }
     });
-  }catch(e){return deny('CAS_DENIED: '+e.message);}
+  }catch(e){
+    if(sqliteCommitReturned)
+      return result('LOCAL_LEDGER_COMMIT_UNVERIFIED',{
+        ledger_cas_committed:null,requires_manual_reconciliation:true,
+        reason:'POSTCOMMIT_STATE_UNVERIFIED: '+e.message
+      });
+    return deny('CAS_DENIED: '+e.message);
+  }
 }
 // Existing #159 signature/revocation/checkpoint verifier runs BEFORE local CAS.
 // Caller-provided clock/pins are still not externally authenticated.

@@ -493,3 +493,109 @@ scoped('historical row cross-repository pivot detected on ledger reopen',({file}
   db.close();
   denied(readLocalLedger(file,LEDGER));
 });
+
+
+// Phase 2 positive/boundary coverage: the ledger may advance in sequence and
+// policy generation, but must never change repository ownership or decrease
+// policy generation even after several commits.
+scoped('same policy generation at next sequence is permitted locally',({file})=>{
+  const {verdict,after}=secondAgainstCommittedFirst(file,c=>{c.policy_sequence=8;});
+  assert.equal(verdict.classification,'LOCAL_LEDGER_CAS_COMMITTED',JSON.stringify(verdict));
+  assert.equal(after.sequence,2);
+  assert.equal(verdict.release_authorized,false);
+});
+scoped('higher policy generation at next sequence is permitted locally',({file})=>{
+  const {verdict,after}=secondAgainstCommittedFirst(file,c=>{c.policy_sequence=9;});
+  assert.equal(verdict.classification,'LOCAL_LEDGER_CAS_COMMITTED',JSON.stringify(verdict));
+  assert.equal(after.sequence,2);
+  assert.equal(verdict.release_authorized,false);
+});
+scoped('rollback after previous successful policy rotation is rejected',({file})=>{
+  const {verdict,after}=secondAgainstCommittedFirst(file,c=>{c.policy_sequence=9;});
+  assert.equal(verdict.ledger_cas_committed,true);
+  const third=claim(3);third.sequence=3;third.policy_sequence=8;
+  third.previous_intent_sha256=after.last_intent_sha256;
+  denied(consumeLocalAdvisoryClaim(file,{
+    ledger_id:after.ledger_id,sequence:after.sequence,
+    last_intent_sha256:after.last_intent_sha256,last_nonce:after.last_nonce
+  },third));
+  assert.equal(readLocalLedger(file,LEDGER).sequence,2);
+});
+scoped('cross-repo switch after two committed entries is rejected',({file})=>{
+  const {verdict,after}=secondAgainstCommittedFirst(file,c=>{c.policy_sequence=9;});
+  assert.equal(verdict.ledger_cas_committed,true);
+  const third=claim(3);third.sequence=3;third.policy_sequence=10;
+  third.repository='ores-truffle-oreslang/other-cli';
+  third.previous_intent_sha256=after.last_intent_sha256;
+  denied(consumeLocalAdvisoryClaim(file,{
+    ledger_id:after.ledger_id,sequence:after.sequence,
+    last_intent_sha256:after.last_intent_sha256,last_nonce:after.last_nonce
+  },third));
+  assert.equal(readLocalLedger(file,LEDGER).sequence,2);
+});
+for(const phase of ['BEFORE_INSERT','AFTER_INSERT','BEFORE_COMMIT']){
+  scoped('exception before durable commit at '+phase+' rolls back cleanly',({file})=>{
+    const v=consumeLocalAdvisoryClaim(file,snapshot(),claim(),at=>{
+      if(at===phase)throw Error('injected precommit observer error');
+    });
+    denied(v);
+    assert.equal(readLocalLedger(file,LEDGER).sequence,0);
+    assert.equal(consumeLocalAdvisoryClaim(file,snapshot(),claim()).ledger_cas_committed,true);
+  });
+}
+scoped('postcommit observer failure is annotated but does not revoke successful CAS',({file})=>{
+  const v=consumeLocalAdvisoryClaim(file,snapshot(),claim(),at=>{
+    if(at==='AFTER_COMMIT')throw Error('observer failed');
+  });
+  assert.equal(v.classification,'LOCAL_LEDGER_CAS_COMMITTED',JSON.stringify(v));
+  assert.equal(v.postcommit_observer_failed,true);
+  assert.equal(v.ledger_cas_committed,true);
+  assert.equal(v.release_authorized,false);
+  assert.equal(readLocalLedger(file,LEDGER).sequence,1);
+});
+scoped('postcommit file drift produces explicit unknown outcome requiring reconciliation',({file})=>{
+  const v=consumeLocalAdvisoryClaim(file,snapshot(),claim(),at=>{
+    if(at==='AFTER_COMMIT')chmodSync(file,0o644);
+  });
+  assert.equal(v.classification,'LOCAL_LEDGER_COMMIT_UNVERIFIED',JSON.stringify(v));
+  assert.equal(v.ledger_cas_committed,null);
+  assert.equal(v.requires_manual_reconciliation,true);
+  assert.equal(v.release_authorized,false);
+  chmodSync(file,0o600);
+  assert.equal(readLocalLedger(file,LEDGER).sequence,1);
+  denied(consumeLocalAdvisoryClaim(file,snapshot(),claim()));
+});
+scoped('same repository across three generations keeps ordered history',({file})=>{
+  for(let i=1;i<=3;i++){
+    const state=readLocalLedger(file,LEDGER);
+    const c=claim(i);c.sequence=i;c.policy_sequence=i+7;
+    c.previous_intent_sha256=state.last_intent_sha256;
+    const v=consumeLocalAdvisoryClaim(file,{
+      ledger_id:state.ledger_id,sequence:state.sequence,
+      last_intent_sha256:state.last_intent_sha256,last_nonce:state.last_nonce
+    },c);
+    assert.equal(v.classification,'LOCAL_LEDGER_CAS_COMMITTED',JSON.stringify(v));
+  }
+  assert.equal(readLocalLedger(file,LEDGER).sequence,3);
+});
+scoped('historical corrupted repository row rejects subsequent CAS',({file})=>{
+  let s=consumeLocalAdvisoryClaim(file,snapshot(),claim(1));
+  assert.equal(s.ledger_cas_committed,true);
+  let prev=readLocalLedger(file,LEDGER);
+  const c=claim(2);c.sequence=2;c.previous_intent_sha256=prev.last_intent_sha256;
+  s=consumeLocalAdvisoryClaim(file,{
+    ledger_id:prev.ledger_id,sequence:prev.sequence,
+    last_intent_sha256:prev.last_intent_sha256,last_nonce:prev.last_nonce
+  },c);
+  assert.equal(s.ledger_cas_committed,true);
+  const db=new DatabaseSync(file);
+  db.prepare('UPDATE ledger_events SET repository=? WHERE sequence=1')
+    .run('ores-truffle-oreslang/another-cli');
+  db.close();
+  denied(readLocalLedger(file,LEDGER));
+  const third=claim(3);third.sequence=3;
+  third.previous_intent_sha256=c.intent_sha256;
+  denied(consumeLocalAdvisoryClaim(file,{
+    ledger_id:LEDGER,sequence:2,last_intent_sha256:c.intent_sha256,last_nonce:c.nonce
+  },third));
+});

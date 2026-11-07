@@ -64,7 +64,7 @@ jobs:
           };
           const total=count('tests'),pass=count('pass'),fail=count('fail');
           const skipped=count('skipped'),cancelled=count('cancelled');
-          if(total<250||pass!==total||fail!==0||skipped!==0||cancelled!==0)
+          if(total<300||pass!==total||fail!==0||skipped!==0||cancelled!==0)
             throw Error('LEDGER_TESTS_INSUFFICIENT_OR_NOT_EXECUTED');
           console.log('ATTO_LEDGER_NATIVE_NODE_PASS='+total);
           NODE
