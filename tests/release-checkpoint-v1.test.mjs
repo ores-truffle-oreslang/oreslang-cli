@@ -166,6 +166,14 @@ const cases = [
  ['invalid clock', {now:'2026-02-30T00:00:00Z'}],
 ];
 for(const [name,options] of cases)test('deny: '+name,()=>denied(options));
+test('established signed checkpoint cannot reset predecessor to genesis zero',()=>{
+  denied({checkpointEdit:c=>c.last_intent_sha256=ZERO,
+    intentEdit:i=>i.previous_intent_sha256=ZERO,
+    pinEdit:p=>p.previous_intent_sha256=ZERO});
+});
+test('established signed checkpoint cannot reset last nonce to genesis zero',()=>{
+  denied({checkpointEdit:c=>c.last_nonce=ZERO});
+});
 test('genesis zero predecessor with seq 1 is valid only as a local candidate',()=>{
   const v=run({checkpointEdit:c=>{c.last_sequence=0;c.last_intent_sha256=ZERO;c.last_nonce=ZERO;},
     intentEdit:i=>{i.sequence=1;i.previous_intent_sha256=ZERO;},

@@ -103,6 +103,9 @@ function validateLink(state, intent, pin, base, registryHash, sequence, nowMs) {
   if (state.last_sequence === 0 &&
       (state.last_intent_sha256 !== ZERO || state.last_nonce !== ZERO))
     throw Error('invalid genesis checkpoint');
+  if (state.last_sequence > 0 &&
+      (state.last_intent_sha256 === ZERO || state.last_nonce === ZERO))
+    throw Error('established high-water checkpoint cannot reset to genesis');
   if (state.last_sequence === Number.MAX_SAFE_INTEGER ||
       pin.next_sequence !== state.last_sequence + 1 ||
       pin.previous_intent_sha256 !== state.last_intent_sha256)
