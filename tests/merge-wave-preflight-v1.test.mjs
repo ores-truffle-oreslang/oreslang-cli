@@ -158,3 +158,31 @@ test('positive status never grants authorization across 100 mutation-free inputs
    assert.equal(result.max_merge_attempts_authorized,0);
  }
 });
+
+blocked('GitHub login case alias cannot self-approve', w=>{
+  w.candidates[0].author='ThE1MiLls';w.candidates[0].reviews[0].user='the1mills';
+},'NO_CURRENT_INDEPENDENT_APPROVAL');
+blocked('GitHub repo case alias cannot duplicate a PR', w=>{
+  w.candidates[4].repo=w.candidates[0].repo.toUpperCase();w.candidates[4].number=w.candidates[0].number;
+},'DUPLICATE_PR');
+blocked('GitHub repo case aliases do not inflate three-repo quorum', w=>{
+  w.candidates.forEach((p,i)=>p.repo=i%2?'ores-truffle-oreslang/A':'ores-truffle-oreslang/a');
+},'THREE_REPO_QUORUM');
+blocked('invalid author login fails', w=>w.candidates[0].author='invalid login','BAD_PR_IDENTITY');
+blocked('invalid reviewer login fails', w=>w.candidates[0].reviews[0].user='invalid login','MALFORMED_REVIEW_TIMELINE');
+blocked('case-folded later DISMISSED invalidates approved review', w=>{
+  const r=w.candidates[0].reviews[0];w.candidates[0].reviews.push({...r,user:'INDEPENDENT',state:'DISMISSED'});
+},'NO_CURRENT_INDEPENDENT_APPROVAL');
+blocked('case-folded commented review cannot clear changes requested', w=>{
+  const r=w.candidates[0].reviews[0];
+  w.candidates[0].reviews.push({...r,user:'SECOND',state:'CHANGES_REQUESTED'});
+  w.candidates[0].reviews.push({...r,user:'second',state:'COMMENTED'});
+},'OUTSTANDING_CHANGES_REQUESTED');
+test('case-folded current-head approval can clear prior changes request',()=>{
+  const w=wave(),r=w.candidates[0].reviews[0];
+  w.candidates[0].reviews=[
+    {...r,user:'REVIEWER',state:'CHANGES_REQUESTED'},
+    {...r,user:'reviewer',state:'APPROVED'},
+  ];
+  assert.equal(qualifies(w).status,'READY_FOR_LIVE_RECHECK');
+});
