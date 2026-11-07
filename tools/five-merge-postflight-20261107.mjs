@@ -27,7 +27,25 @@ const {pr,branch,protection,rulesets,compare,run,jobs,reviews}=e||{};
 if(!sha40.test(t.head)||!sha40.test(t.merge))fail('INVALID_PINNED_SHA');
 if(pr?.merged!==true||pr?.merge_commit_sha!==t.merge||pr?.head?.sha!==t.head||pr?.base?.ref!=='main'||typeof pr?.merged_at!=='string')fail('MERGE_IDENTITY_UNVERIFIED');
 if(branch?.name!=='main'||!sha40.test(branch?.commit?.sha||'')||!['ahead','identical'].includes(compare?.status)||compare?.behind_by!==0||compare?.base_commit?.sha!==t.merge)fail('MAIN_ANCESTRY_UNVERIFIED');
-if(branch?.protected!==true||!Array.isArray(rulesets)||!protection||protection?.enforce_admins?.enabled!==true||protection?.required_pull_request_reviews?.required_approving_review_count<1||protection?.required_pull_request_reviews?.require_code_owner_reviews!==true||protection?.required_pull_request_reviews?.dismiss_stale_reviews!==true||protection?.required_status_checks?.strict!==true)fail('ENFORCED_BRANCH_POLICY_UNVERIFIED');
+const reviewRule=protection?.required_pull_request_reviews;
+const checkRule=protection?.required_status_checks;
+const statusNames=[
+  ...(Array.isArray(checkRule?.contexts)?checkRule.contexts:[]),
+  ...(Array.isArray(checkRule?.checks)?checkRule.checks.map(c=>c?.context):[])
+];
+if(branch?.protected!==true||!Array.isArray(rulesets)||!protection||
+   protection?.enforce_admins?.enabled!==true||
+   protection?.allow_force_pushes?.enabled!==false||
+   protection?.allow_deletions?.enabled!==false||
+   !Number.isSafeInteger(reviewRule?.required_approving_review_count)||
+   reviewRule.required_approving_review_count<1||
+   reviewRule.require_code_owner_reviews!==true||
+   reviewRule.dismiss_stale_reviews!==true||
+   checkRule?.strict!==true||
+   statusNames.length===0||
+   statusNames.some(n=>typeof n!=='string'||n.trim()!==n||n.length===0)||
+   new Set(statusNames).size!==statusNames.length)
+  fail('ENFORCED_BRANCH_POLICY_UNVERIFIED');
 if(run?.id!==t.run||run?.event!=='push'||run?.head_sha!==t.merge||run?.status!=='completed'||run?.conclusion!=='success'||!Number.isSafeInteger(run?.run_attempt)||run.run_attempt<1)fail('POST_MERGE_RUN_UNVERIFIED');
 const jobList=jobs?.jobs;
 if(!Array.isArray(jobList)||jobList.length===0||
