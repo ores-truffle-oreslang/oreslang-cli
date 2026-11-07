@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Immutable, read-only source admission. Not an authenticated external merge authority.
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { lstatSync, fstatSync, openSync, closeSync, readFileSync, readdirSync, realpathSync, constants } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -81,8 +81,23 @@ export function verifyCheckout({root=process.cwd(),expected=process.env.EXPECTED
       if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1)deny('FILE_TYPE_OR_LINK_CHANGED');
       if((stat.mode&0o111)!==(ref.mode==='100755'?0o111:0))deny('EXECUTABLE_MODE_CHANGED');
       if(stat.size>MAX_BLOB_BYTES)deny('OVERSIZED_BLOB');
-      const data=readFileSync(location);
-      if(data.length!==stat.size||blobHash(data)!==ref.oid)deny('PHYSICAL_BLOB_CHANGED');
+      // Keep one O_NOFOLLOW descriptor open for the raw read; reject inode,
+      // link-count, size, mode and timestamp swaps before or during the read.
+      const fd=openSync(location,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+      try{
+        const initial=fstatSync(fd);
+        if(initial.dev!==stat.dev||initial.ino!==stat.ino||
+           initial.nlink!==1||!initial.isFile()||initial.size>MAX_BLOB_BYTES)
+          deny('SOURCE_INODE_REPLACED');
+        const data=readFileSync(fd);
+        const after=fstatSync(fd);
+        if(after.dev!==initial.dev||after.ino!==initial.ino||after.nlink!==1||
+           after.size!==initial.size||after.mode!==initial.mode||
+           after.mtimeMs!==initial.mtimeMs||after.ctimeMs!==initial.ctimeMs)
+          deny('SOURCE_CHANGED_DURING_READ');
+        if(data.length!==initial.size||blobHash(data)!==ref.oid)
+          deny('PHYSICAL_BLOB_CHANGED');
+      }finally{closeSync(fd);}
       seen.add(p);
     }
   }
