@@ -1,0 +1,75 @@
+name: Public role-separated release checkpoint (NON-AUTHORIZING)
+on:
+  pull_request:
+    paths:
+      - 'tools/release-checkpoint-v1/**'
+      - 'tools/release-trust-registry-v1/**'
+      - 'tools/release-assurance-v1/**'
+      - 'tests/release-trust-registry-v1.test.mjs'
+      - 'tests/release-assurance-v1.test.mjs'
+      - 'tests/release-checkpoint-v1.test.mjs'
+      - '.github/workflows/release-checkpoint-v1.yml'
+      - 'docs/RELEASE_CHECKPOINT_V1.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-signed-ledger-negative-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact original PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify immutable commit tree and exact source blobs
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test -z "$(git ls-files --others --ignored --exclude-standard)"
+          for p in tools/release-assurance-v1/verify.mjs tools/release-trust-registry-v1/verify.mjs tools/release-checkpoint-v1/verify.mjs tests/release-assurance-v1.test.mjs tests/release-trust-registry-v1.test.mjs tests/release-checkpoint-v1.test.mjs .github/workflows/release-checkpoint-v1.yml docs/RELEASE_CHECKPOINT_V1.md; do
+            sha="$(git rev-parse "HEAD:$p")"
+            test "$(git hash-object --no-filters "$p")" = "$sha"
+            echo "EXACT_SOURCE_BLOB $p $sha"
+          done
+          echo "EXACT_HEAD=$EXPECTED_HEAD"
+          echo "EXACT_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Install pinned Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Execute synthetic signature, revocation, replay and CLI negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          node --check tools/release-checkpoint-v1/verify.mjs
+          node --check tests/release-checkpoint-v1.test.mjs
+          node --test tests/release-assurance-v1.test.mjs tests/release-trust-registry-v1.test.mjs tests/release-checkpoint-v1.test.mjs | tee "$RUNNER_TEMP/atto-release-checkpoint.tap"
+          node --input-type=module - "$RUNNER_TEMP/atto-release-checkpoint.tap" <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const lines = readFileSync(process.argv[2], 'utf8').split(/\r?\n/);
+          const count = key => {
+            const prefix = '# ' + key + ' ';
+            const matches = lines.filter(line => line.startsWith(prefix));
+            if (matches.length !== 1 || !/^[0-9]+$/.test(matches[0].slice(prefix.length)))
+              throw Error('missing, duplicate, or malformed TAP counter: ' + key);
+            return Number(matches[0].slice(prefix.length));
+          };
+          const total = count('tests');
+          const passed = count('pass');
+          const failed = count('fail');
+          const skipped = count('skipped');
+          const cancelled = count('cancelled');
+          if (total < 150 || passed !== total || failed !== 0 ||
+              skipped !== 0 || cancelled !== 0)
+            throw Error('insufficient executed/admitted tests or nonpassing/ignored cases');
+          console.log('ACTUAL_NODE_TESTS_PASS=' + total);
+          NODE
+          echo "NON_AUTHORIZING_LOCAL_ONLY: no durable CAS, authenticated GitHub evidence, trusted clock or compiler-backed guest release"
