@@ -26,6 +26,30 @@ const SHA = /^[0-9a-f]{40}$/;
 const REPO = /^ores-truffle-oreslang\/[a-z0-9][a-z0-9._-]{1,79}$/;
 const PRIVATE_POLICY_APP_ID = 15368;
 
+// A first/last branch HEAD equality is not proof that the protected policy
+// stayed fixed. Snapshot full API objects immediately (not a mutable reference)
+// and require two consistent policy reads. Canonicalize key order to avoid
+// harmless JSON member-order changes creating false negatives.
+function stablePolicySnapshot(value) {
+  let nodes = 0;
+  function encode(node, depth) {
+    if (++nodes > 8192 || depth > 32) throw new TypeError('invalid policy snapshot bounds');
+    if (node === null || ['string', 'number', 'boolean'].includes(typeof node)) {
+      const encoded = JSON.stringify(node);
+      if (encoded === undefined) throw new TypeError('invalid policy scalar');
+      return encoded;
+    }
+    if (Array.isArray(node)) return '[' + node.map(item => encode(item, depth + 1)).join(',') + ']';
+    if (typeof node !== 'object') throw new TypeError('invalid policy value');
+    return '{' + Object.keys(node).sort()
+      .map(key => JSON.stringify(key) + ':' + encode(node[key], depth + 1)).join(',') + '}';
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('invalid protection response');
+  }
+  return encode(value, 0);
+}
+
 export function assess(repo, before, protection, after) {
   if (!REPO.test(repo) || !REPOSITORIES.includes(repo)) {
     throw new TypeError('repository outside reviewed audit inventory');
@@ -48,6 +72,7 @@ export function assess(repo, before, protection, after) {
       reviews.required_approving_review_count < 1) block('APPROVAL_COUNT_MISSING');
   if (reviews?.require_code_owner_reviews !== true) block('CODEOWNER_REVIEW_MISSING');
   if (reviews?.dismiss_stale_reviews !== true) block('STALE_APPROVALS_NOT_DISMISSED');
+  if (reviews?.require_last_push_approval !== true) block('LAST_PUSH_APPROVAL_MISSING');
   const bypass = reviews?.bypass_pull_request_allowances;
   if (!bypass || !['users','teams','apps'].every(key =>
       Array.isArray(bypass[key]) && bypass[key].length === 0)) {
@@ -67,6 +92,16 @@ export function assess(repo, before, protection, after) {
         !Number.isInteger(item.app_id) || item.app_id <= 0) ||
       new Set(checks.map(item => item.context)).size !== checks.length) {
     block('ISSUER_BOUND_CHECKS_MISSING');
+  }
+  // GET /protection can expose both legacy contexts and issuer-bound checks.
+  // A single bound check cannot legitimize a second unbound legacy context.
+  const contexts = status?.contexts;
+  if (!Array.isArray(contexts) || contexts.some(name =>
+      typeof name !== 'string' || !name.trim()) ||
+      new Set(contexts).size !== contexts.length ||
+      contexts.some(name => !Array.isArray(checks) || !checks.some(item =>
+        item?.context === name && Number.isInteger(item?.app_id) && item.app_id > 0))) {
+    block('UNBOUND_LEGACY_STATUS_CONTEXTS');
   }
   if (repo.startsWith('ores-truffle-oreslang/oreslang-source.') &&
       !checks?.some(item => item?.context === 'private-ci-policy' &&
@@ -102,6 +137,16 @@ export async function auditRepository(repo, getJson) {
       first?.protected === false ? 'MAIN_UNPROTECTED' : 'PROTECTION_API_UNAVAILABLE'
     ], merge_authorized:false, release_authorized:false, private_source_export_authorized:false};
   }
+  // Read policy a second time before the last branch read to catch a
+  // review/CI/bypass-policy race even when the branch commit never moved.
+  let firstPolicy, secondPolicy;
+  try {
+    firstPolicy = stablePolicySnapshot(protection);
+    secondPolicy = stablePolicySnapshot(await getJson(base + '/protection'));
+  } catch {
+    return {repository: repo, policy_state: 'BLOCKED', blockers:['PROTECTION_RECHECK_UNAVAILABLE'],
+      merge_authorized:false, release_authorized:false, private_source_export_authorized:false};
+  }
   let last;
   try {
     last = await getJson(base);
@@ -109,7 +154,12 @@ export async function auditRepository(repo, getJson) {
     return {repository: repo, policy_state: 'BLOCKED', blockers:['BRANCH_RECHECK_UNAVAILABLE'],
       merge_authorized:false, release_authorized:false, private_source_export_authorized:false};
   }
-  return assess(repo, first, protection, last);
+  const result = assess(repo, first, protection, last);
+  if (firstPolicy !== secondPolicy) {
+    result.policy_state = 'BLOCKED';
+    result.blockers.push('PROTECTION_CHANGED_DURING_AUDIT');
+  }
+  return result;
 }
 
 export async function audit(getJson, repositories = REPOSITORIES) {
