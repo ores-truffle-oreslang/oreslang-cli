@@ -124,7 +124,9 @@ export async function auditRepository(repo, getJson) {
   const base = '/repos/' + repo + '/branches/main';
   let first;
   try {
-    first = await getJson(base);
+    // Capture the *first* branch identity immediately: an injected caller may
+    // reuse and mutate its object for later reads.
+    first = JSON.parse(stablePolicySnapshot(await getJson(base)));
   } catch {
     return {repository: repo, policy_state: 'BLOCKED', blockers:['BRANCH_API_UNAVAILABLE'],
       merge_authorized:false, release_authorized:false, private_source_export_authorized:false};
@@ -154,7 +156,7 @@ export async function auditRepository(repo, getJson) {
     return {repository: repo, policy_state: 'BLOCKED', blockers:['BRANCH_RECHECK_UNAVAILABLE'],
       merge_authorized:false, release_authorized:false, private_source_export_authorized:false};
   }
-  const result = assess(repo, first, protection, last);
+  const result = assess(repo, first, JSON.parse(firstPolicy), last);
   if (firstPolicy !== secondPolicy) {
     result.policy_state = 'BLOCKED';
     result.blockers.push('PROTECTION_CHANGED_DURING_AUDIT');
