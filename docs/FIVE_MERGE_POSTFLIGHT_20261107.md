@@ -49,3 +49,7 @@ The strengthened non-authorizing classifier now:
 - always returns BLOCKED and retains the historical recertification blocker, even when synthetic evidence is otherwise complete.
 
 More than forty separately named negative tests exercise historic review dismissals, stale approvals, invalid dates, identity spoofing, unsuccessful companion jobs and false-positive runner receipts. This corrects diagnostic classification only; it **does not** authenticate live branch protection, revive a revoked approval, or authorize a historical release.
+
+## Additional protection denial checks
+
+The audit also rejects absent, zero, fractional or string-valued approval quorums; missing/duplicate required CI check contexts; disabled strict checks; deleted branch protection metadata; absent administrator enforcement; and missing or enabled force-push/deletion permissions. A current ruleset name alone is not sufficient. The collector's current GitHub App may still receive 403 for protection: that remains BLOCKED, never an implicit pass.
