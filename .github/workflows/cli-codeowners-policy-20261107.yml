@@ -12,33 +12,18 @@ permissions:
 jobs:
   codeowners-policy:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Verify immutable original source head and physical policy bytes
-        shell: bash
-        env:
-          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
-          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_HEAD"
-          test "$(git rev-parse --show-toplevel)" = "$(pwd -P)"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          for path in \
-            .github/CODEOWNERS \
-            tests/cli-codeowners-policy-20261107.test.mjs \
-            .github/workflows/cli-codeowners-policy-20261107.yml \
-            docs/CLI_CODEOWNERS_BOOTSTRAP_20261107.md; do
-              test "$(git rev-parse "HEAD:$path")" = "$(git hash-object -- "$path")"
-          done
-          echo "EXACT_ORIGINAL_HEAD=$EXPECTED_HEAD"
-          echo "EXACT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.20.0'
-      - name: Execute adversarial ownership policy tests
-        run: node --test tests/cli-codeowners-policy-20261107.test.mjs
+      - name: Verify original head, index flags and every raw physical Git blob
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/verify_cli_ci_checkout_20261107.mjs
+      - name: Execute adversarial source-integrity and ownership tests
+        run: node --test tests/verify_cli_ci_checkout_20261107.test.mjs tests/cli-codeowners-policy-20261107.test.mjs
