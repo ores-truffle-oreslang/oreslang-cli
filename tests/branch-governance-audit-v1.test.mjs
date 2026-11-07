@@ -15,6 +15,7 @@ const validProtection = () => ({
     required_approving_review_count:1,
     require_code_owner_reviews:true,
     dismiss_stale_reviews:true,
+    require_last_push_approval:true,
     bypass_pull_request_allowances:{users:[],teams:[],apps:[]},
   },
   enforce_admins:{enabled:true},
@@ -23,6 +24,7 @@ const validProtection = () => ({
   required_conversation_resolution:{enabled:true},
   required_status_checks:{
     strict:true,
+    contexts:['CI','private-ci-policy'],
     checks:[{context:'CI',app_id:15368},{context:'private-ci-policy',app_id:15368}],
   },
 });
@@ -66,6 +68,8 @@ for (const [name,modify,expected] of [
   ['approvals zero',p=>{p.required_pull_request_reviews.required_approving_review_count=0;},'APPROVAL_COUNT_MISSING'],
   ['codeowners off',p=>{p.required_pull_request_reviews.require_code_owner_reviews=false;},'CODEOWNER_REVIEW_MISSING'],
   ['stale approvals allowed',p=>{p.required_pull_request_reviews.dismiss_stale_reviews=false;},'STALE_APPROVALS_NOT_DISMISSED'],
+  ['last push self-approval allowed',p=>{p.required_pull_request_reviews.require_last_push_approval=false;},'LAST_PUSH_APPROVAL_MISSING'],
+  ['last push approval field absent',p=>{delete p.required_pull_request_reviews.require_last_push_approval;},'LAST_PUSH_APPROVAL_MISSING'],
   ['user bypass',p=>{p.required_pull_request_reviews.bypass_pull_request_allowances.users=['example'];},'PR_BYPASS_NOT_PROVEN_EMPTY'],
   ['app bypass',p=>{p.required_pull_request_reviews.bypass_pull_request_allowances.apps=[{id:1}];},'PR_BYPASS_NOT_PROVEN_EMPTY'],
   ['bypass metadata missing',p=>{delete p.required_pull_request_reviews.bypass_pull_request_allowances;},'PR_BYPASS_NOT_PROVEN_EMPTY'],
@@ -77,6 +81,10 @@ for (const [name,modify,expected] of [
   ['unbound status app',p=>{p.required_status_checks.checks[0].app_id=-1;},'ISSUER_BOUND_CHECKS_MISSING'],
   ['only legacy contexts',p=>{delete p.required_status_checks.checks; p.required_status_checks.contexts=['CI'];},'ISSUER_BOUND_CHECKS_MISSING'],
   ['duplicate check names',p=>{p.required_status_checks.checks.push({context:'CI',app_id:15368});},'ISSUER_BOUND_CHECKS_MISSING'],
+  ['unbound legacy context alongside bound check',p=>{p.required_status_checks.contexts.push('attacker-legacy');},'UNBOUND_LEGACY_STATUS_CONTEXTS'],
+  ['unbound context from missing issuer',p=>{p.required_status_checks.checks[0].app_id=null;},'UNBOUND_LEGACY_STATUS_CONTEXTS'],
+  ['duplicate legacy context',p=>{p.required_status_checks.contexts.push('CI');},'UNBOUND_LEGACY_STATUS_CONTEXTS'],
+  ['missing legacy-context inventory',p=>{delete p.required_status_checks.contexts;},'UNBOUND_LEGACY_STATUS_CONTEXTS'],
 ]) {
   test('negative policy: ' + name, () => {
     const policy=validProtection(); modify(policy);
@@ -107,6 +115,70 @@ test('missing protection API, branch API and recheck fail closed', async () => {
     return initial;
   };
   assert.deepEqual((await auditRepository(REPO,denyRecheck)).blockers,['BRANCH_RECHECK_UNAVAILABLE']);
+});
+
+test('immutable main HEAD is not enough: policy bypass introduced between reads blocks', async () => {
+  let policyReads=0;
+  const read=async path => {
+    if (!path.endsWith('/protection')) return validBranch();
+    const p=validProtection();
+    if (++policyReads === 2) {
+      p.required_pull_request_reviews.bypass_pull_request_allowances.apps.push({id:5});
+    }
+    return p;
+  };
+  const receipt=await auditRepository(REPO,read);
+  assert.equal(policyReads,2);
+  assert.equal(receipt.observed_main_sha,HEAD);
+  assert.equal(receipt.policy_state,'BLOCKED');
+  assert.deepEqual(receipt.blockers,['PROTECTION_CHANGED_DURING_AUDIT']);
+  assert.equal(receipt.release_authorized,false);
+});
+
+test('policy snapshot freezes earlier returned objects and detects mutation', async () => {
+  const p=validProtection();
+  let reads=0;
+  const receipt=await auditRepository(REPO,async path => {
+    if (!path.endsWith('/protection')) return validBranch();
+    if (++reads === 2) p.required_status_checks.strict=false;
+    return p;
+  });
+  assert.deepEqual(receipt.blockers,['PROTECTION_CHANGED_DURING_AUDIT']);
+  assert.equal(receipt.policy_state,'BLOCKED');
+});
+
+test('policy GET member order does not create a spurious drift alarm',async()=>{
+  let reads=0;
+  const receipt=await auditRepository(REPO,async path => {
+    if (!path.endsWith('/protection')) return validBranch();
+    const p=validProtection();
+    if (++reads === 2) return Object.fromEntries(Object.entries(p).reverse());
+    return p;
+  });
+  assert.equal(receipt.policy_state,'REQUIREMENTS_OBSERVED');
+  assert.deepEqual(receipt.blockers,[]);
+});
+
+test('second policy GET outage, invalid result and excessive depth fail closed',async()=>{
+  let reads=0;
+  const denied=await auditRepository(REPO,async path=>{
+    if (!path.endsWith('/protection')) return validBranch();
+    if (++reads===2) throw Error('403');
+    return validProtection();
+  });
+  assert.deepEqual(denied.blockers,['PROTECTION_RECHECK_UNAVAILABLE']);
+  assert.equal(denied.release_authorized,false);
+  reads=0;
+  const missing=await auditRepository(REPO,async path=>{
+    if (!path.endsWith('/protection')) return validBranch();
+    return ++reads===2?null:validProtection();
+  });
+  assert.deepEqual(missing.blockers,['PROTECTION_RECHECK_UNAVAILABLE']);
+  let nested={};
+  for(let i=0;i<40;i++) nested={next:nested};
+  const tooDeep=await auditRepository(REPO,async path=>
+    path.endsWith('/protection')?nested:validBranch());
+  assert.deepEqual(tooDeep.blockers,['PROTECTION_RECHECK_UNAVAILABLE']);
 });
 
 test('audit aggregates blockers, preserves ordered identity, never produces release permission',async()=>{
