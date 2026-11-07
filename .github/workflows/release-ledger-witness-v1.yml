@@ -1,0 +1,133 @@
+name: AttoLang independent-witness protocol (NON-AUTHORIZING)
+on:
+  pull_request:
+    paths:
+      - 'tools/release-ledger-witness-v1/**'
+      - 'tests/release-ledger-witness-v1*'
+      - 'formal/release-ledger-witness-v1/**'
+      - 'docs/RELEASE_LEDGER_WITNESS_V1.md'
+      - '.github/workflows/release-ledger-witness-v1.yml'
+      - 'tools/release-ledger-service-v2/**'
+      - 'tools/release-ledger-service-v1/**'
+      - 'tools/release-checkpoint-v1/**'
+      - 'tools/release-trust-registry-v1/**'
+      - 'tools/release-assurance-v1/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  witness-real-postgresql-and-adversarial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.8
+        env:
+          POSTGRES_USER: attotest
+          POSTGRES_PASSWORD: localtestpassword
+          POSTGRES_DB: atto_primary_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U attotest -d atto_primary_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout immutable original PR HEAD without token
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact original head, tree and all physical source blobs
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          for p in tools/release-ledger-witness-v1/schema.sql tools/release-ledger-witness-v1/witness.mjs tools/release-ledger-witness-v1/receipt.mjs tools/release-ledger-witness-v1/coordinator.mjs tools/release-ledger-witness-v1/primary-evidence.mjs tests/release-ledger-witness-v1.test.mjs tests/release-ledger-witness-v1-pg.test.mjs formal/release-ledger-witness-v1/WitnessProtocol.tla formal/release-ledger-witness-v1/WitnessProtocol.cfg formal/release-ledger-witness-v1/WitnessNoReserveMutant.tla formal/release-ledger-witness-v1/WitnessNoReserveMutant.cfg formal/release-ledger-witness-v1/WitnessFakeFinalizeMutant.tla formal/release-ledger-witness-v1/WitnessFakeFinalizeMutant.cfg formal/release-ledger-witness-v1/run-tlc.sh .github/workflows/release-ledger-witness-v1.yml docs/RELEASE_LEDGER_WITNESS_V1.md tools/release-ledger-service-v1/postgres.mjs tools/release-ledger-service-v1/protocol.mjs tools/release-ledger-service-v1/schema.sql tools/release-ledger-service-v1/package.json tools/release-ledger-service-v2/signed-claim.mjs tests/fixtures/release-ledger-service-v2-signed.mjs tools/release-checkpoint-v1/verify.mjs tools/release-trust-registry-v1/verify.mjs tools/release-assurance-v1/verify.mjs; do
+            expected="$(git rev-parse "HEAD:$p")"
+            test "$(git hash-object --no-filters "$p")" = "$expected"
+            echo "ORIGINAL_SOURCE_BLOB $p $expected"
+          done
+          echo "EXACT_WITNESS_HEAD=$EXPECTED_HEAD"
+          echo "EXACT_WITNESS_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Install pinned Node 22.20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Install isolated PostgreSQL driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix tools/release-ledger-service-v1 --ignore-scripts --no-audit --no-fund --no-package-lock
+      - name: Create SECOND disposable witness database (same cluster, NOT independent)
+        shell: bash
+        env:
+          ATTO_LEDGER_TEST_PG_URL: postgresql://attotest:localtestpassword@127.0.0.1:5432/atto_primary_test
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from './tools/release-ledger-service-v1/node_modules/pg/lib/index.js';
+          const db=new pg.Client({connectionString:process.env.ATTO_LEDGER_TEST_PG_URL});
+          await db.connect();
+          await db.query('CREATE DATABASE atto_witness_test');
+          await db.end();
+          console.log('TWO_DISTINCT_DB_NAMES_BUT_SHARED_CLUSTER=1');
+          NODE
+      - name: Run real dual-database witness fencing, rollback and signing tests
+        shell: bash
+        env:
+          ATTO_LEDGER_TEST_PG_URL: postgresql://attotest:localtestpassword@127.0.0.1:5432/atto_primary_test
+          ATTO_WITNESS_TEST_PG_URL: postgresql://attotest:localtestpassword@127.0.0.1:5432/atto_witness_test
+        run: |
+          set -euo pipefail
+          node --version
+          for p in tools/release-ledger-witness-v1/witness.mjs tools/release-ledger-witness-v1/receipt.mjs tools/release-ledger-witness-v1/coordinator.mjs tools/release-ledger-witness-v1/primary-evidence.mjs tests/release-ledger-witness-v1.test.mjs tests/release-ledger-witness-v1-pg.test.mjs; do node --check "$p"; done
+          node --test tests/release-ledger-witness-v1.test.mjs tests/release-ledger-witness-v1-pg.test.mjs | tee "$RUNNER_TEMP/atto-witness.tap"
+          node --input-type=module - "$RUNNER_TEMP/atto-witness.tap" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const lines=readFileSync(process.argv[2],'utf8').split(/\r?\n/);
+          const metric=k=>{
+            const pre='# '+k+' ';
+            const m=lines.filter(x=>x.startsWith(pre));
+            if(m.length!==1||!/^[0-9]+$/.test(m[0].slice(pre.length)))
+              throw Error('MISSING_OR_DUPLICATE_WITNESS_TAP_'+k);
+            return Number(m[0].slice(pre.length));
+          };
+          const n=metric('tests'),pass=metric('pass'),fail=metric('fail');
+          const skip=metric('skipped'),cancel=metric('cancelled');
+          if(n<400||pass!==n||fail!==0||skip!==0||cancel!==0)
+            throw Error('WITNESS_STEPFUL_TESTS_NOT_PROVEN');
+          console.log('REAL_DUAL_DB_WITNESS_TESTS_PASS='+pass);
+          console.log('TEST_SHARED_CLUSTER_IS_NOT_INDEPENDENT_FAILURE_DOMAIN=1');
+          NODE
+  witness-actual-tlc-fault-model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact immutable head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Bind original model and two mutation blobs
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_HEAD"
+          for p in formal/release-ledger-witness-v1/WitnessProtocol.tla formal/release-ledger-witness-v1/WitnessProtocol.cfg formal/release-ledger-witness-v1/WitnessNoReserveMutant.tla formal/release-ledger-witness-v1/WitnessNoReserveMutant.cfg formal/release-ledger-witness-v1/WitnessFakeFinalizeMutant.tla formal/release-ledger-witness-v1/WitnessFakeFinalizeMutant.cfg formal/release-ledger-witness-v1/run-tlc.sh; do
+            test "$(git hash-object --no-filters "$p")" = "$(git rev-parse "HEAD:$p")"
+          done
+          echo "EXACT_WITNESS_TLC_HEAD=$EXPECTED_HEAD"
+          echo "EXACT_WITNESS_TLC_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Model-check healthy reservation/finalization and reject unsafe mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash formal/release-ledger-witness-v1/run-tlc.sh
