@@ -40,3 +40,22 @@ Read back `main.protected=true`, effective active rules and required check issue
 Highlighter #269/#267, CLI #151, Sublime #144 and VS Code #217 all have source-owned successful post-merge test runs but **lacked pre-merge independent approvals** and were merged while unprotected. Refer to [CLI audit PR #156](https://github.com/ores-truffle-oreslang/oreslang-cli/pull/156), [CLI governance PR #155](https://github.com/ores-truffle-oreslang/oreslang-cli/pull/155), and [CLI preflight PR #157](https://github.com/ores-truffle-oreslang/oreslang-cli/pull/157). They are independent, non-authorizing workstreams. Keep release qualification **BLOCKED** until independent post-merge diff audit and explicit release-owner recertification.
 
 The other three repositories already have CODEOWNERS on `main` but remain unprotected: `html-js-css-syntax-highlighter`, `sublime-text-plugins`, `vscode-plugins`. They require administrator-enforced rules independently. VS Code original-head CI remediation is tracked in draft [#211](https://github.com/ores-truffle-oreslang/vscode-plugins/pull/211); do not duplicate edits to its agent-owned branch.
+
+## Audit hardening addendum — whole-tree physical-source admission
+
+The initial PR's CI only used normal Git status and hashed four selected files. This did not rule out assume-unchanged/skip-worktree, ignored files, case aliases or modifications to other tracked files.
+
+The hardened source-owned CI now runs the new whole-tree source verifier immediately after immutable checkout and pinned Node setup, before test execution. It checks:
+
+- expected 40-hex SHA, real repository root and immutable HEAD/tree identity;
+- inherited GIT control variables, ordinary Git index flags, index/tree path equality and path collisions;
+- every tracked file's physical bytes against Git blob object identity, not Git status or configured clean/smudge filters;
+- actual file modes and hardlinks, rejected source symlinks, missing tracked files and unexpected ignored/untracked entries, including Git ignorecase and clean-filter tricks;
+- all checkout files including the checker, policy, workflow, tests and docs;
+- strict, fatal UTF-8 policy parsing, deterministic CODEOWNERS rule order and isolated adversarial mutations.
+
+Two separate test suites exercise policy parsing and physical verification with real temporary Git repositories. The physical tests include negative controls for symlink and hardlink changes, assume-unchanged and skip-worktree entries, case-only aliases, malformed HEAD, unexpected directories, silently ignored files, executable-bit drift, inherited Git controls and equal-size source mutation.
+
+**Limits:** Git SHA-1 identity is not an independent cryptographic release signature. Source-tree inspection is a point-in-time check; untrusted code could mutate files later. A PR-owned workflow can itself be modified, so its green result is not a substitute for independently trusted workflow governance, active no-bypass GitHub rules or reviewed release attestations. This source verifier deliberately rejects source symlinks and gitlinks/submodules until separately reviewed. It cannot retroactively certify historical unreviewed merges.
+
+Do not mark this PR ready until the final exact HEAD passes the combined test suite and existing CLI CI; independent review and protected-main enforcement remain prerequisites.
