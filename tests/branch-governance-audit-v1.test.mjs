@@ -147,6 +147,19 @@ test('policy snapshot freezes earlier returned objects and detects mutation', as
   assert.equal(receipt.policy_state,'BLOCKED');
 });
 
+test('shared branch API object mutation does not erase first HEAD identity',async()=>{
+  const branch=validBranch();
+  let branchReads=0;
+  const receipt=await auditRepository(REPO,async path=>{
+    if(path.endsWith('/protection')) return validProtection();
+    if(++branchReads===2) branch.commit.sha='b'.repeat(40);
+    return branch;
+  });
+  assert.equal(receipt.policy_state,'BLOCKED');
+  assert.equal(receipt.observed_main_sha,HEAD);
+  assert.ok(receipt.blockers.includes('MAIN_MOVED_DURING_AUDIT'));
+});
+
 test('policy GET member order does not create a spurious drift alarm',async()=>{
   let reads=0;
   const receipt=await auditRepository(REPO,async path => {
