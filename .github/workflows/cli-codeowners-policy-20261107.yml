@@ -2,17 +2,8 @@ name: CLI CODEOWNERS policy (source-free, non-promoting)
 
 on:
   pull_request:
-    paths:
-      - '.github/CODEOWNERS'
-      - 'tests/cli-codeowners-policy-20261107.test.mjs'
-      - '.github/workflows/cli-codeowners-policy-20261107.yml'
-      - 'docs/CLI_CODEOWNERS_BOOTSTRAP_20261107.md'
   push:
-    paths:
-      - '.github/CODEOWNERS'
-      - 'tests/cli-codeowners-policy-20261107.test.mjs'
-      - '.github/workflows/cli-codeowners-policy-20261107.yml'
-      - 'docs/CLI_CODEOWNERS_BOOTSTRAP_20261107.md'
+    branches: [main]
   workflow_dispatch:
 
 permissions:
