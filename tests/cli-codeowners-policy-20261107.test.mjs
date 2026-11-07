@@ -10,7 +10,12 @@ const expected = Object.freeze([
   '/.gitignore', '/README.md',
 ]);
 const owner = '@ORESoftware';
-const source = readFileSync(policyUrl, 'utf8');
+function decodePolicy(bytes){
+  assert.ok(Buffer.isBuffer(bytes), 'raw policy must be a Buffer');
+  assert.ok(!(bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf), 'BOM forbidden');
+  return new TextDecoder('utf-8', {fatal:true,ignoreBOM:true}).decode(bytes);
+}
+const source = decodePolicy(readFileSync(policyUrl));
 
 function validate(text) {
   assert.equal(typeof text, 'string');
@@ -94,4 +99,63 @@ test('empty or all-comments policy cannot pass', () => {
   for (const mutant of ['', '# no ownership\n', '# hidden\n* @other\n']) {
     assert.throws(() => validate(mutant));
   }
+});
+
+
+// Independent cases, not just subcases embedded in one all-or-nothing loop.
+for (const rule of expected) {
+  test('fail closed if required CODEOWNERS rule is missing: '+rule, () => {
+    const changed = source.replace(rule+' '+owner+'\n', '');
+    assert.notEqual(changed,source);
+    assert.throws(() => validate(changed));
+  });
+}
+const extraMutations = [
+  ['extra owner on root', source.replace('* @ORESoftware','* @ORESoftware @the1mills')],
+  ['injected alternate group', source.replace('* @ORESoftware','* @ORESoftware @untrusted-team')],
+  ['path glob override', source+'\n** @the1mills\n'],
+  ['malicious test override', source+'/tests/ @the1mills\n'],
+  ['malicious workflow override', source+'/.github/workflows/ @the1mills\n'],
+  ['malicious security script override', source+'/scripts/ @the1mills\n'],
+  ['mixed-case owner in final match', source.replace('/Cargo.toml @ORESoftware','/Cargo.toml @oreSoftware')],
+  ['malformed colon owner',source.replace('/docs/ @ORESoftware','/docs/: @ORESoftware')],
+  ['comment placement shadow',source.replace('/docs/ @ORESoftware','# /docs/ @ORESoftware')],
+  ['trailing whitespace',source.replace('/docs/ @ORESoftware','/docs/ @ORESoftware ')],
+  ['leading whitespace',source.replace('/docs/ @ORESoftware',' /docs/ @ORESoftware')],
+  ['tab-delimited owner',source.replace('/docs/ @ORESoftware','/docs/\t@ORESoftware')],
+  ['control byte in comment',source.replace('# AttoLang','#\u0001 AttoLang')],
+  ['UTF8 invisibility in comment',source.replace('# AttoLang','#\u200d AttoLang')],
+  ['BIDI direction override',source.replace('/tools/','/to\u202eols/')],
+  ['bidirectional isolate',source.replace('/tools/','/tools/\u2067')],
+  ['accidental blank wildcard',source.replace('* @ORESoftware','')],
+  ['missing last newline',source.slice(0,-1)],
+  ['bare escaped wildcard',source.replace('* @ORESoftware','\\* @ORESoftware')],
+  ['Windows path separators',source.replace('/scripts/','\\scripts\\')],
+  ['quoted CODEOWNERS pattern',source.replace('/scripts/','"/scripts/"')],
+  ['double wildcard',source.replace('* @ORESoftware','** @ORESoftware')],
+  ['path with parent traversal',source.replace('/tools/','/docs/../tools/')],
+  ['dangerous path exception',source+'!/tools/ @the1mills\n'],
+  ['duplicate owner override',source+'/README.md @ORESoftware\n'],
+];
+for (const [title,mutant] of extraMutations) {
+  test('reject CODEOWNERS policy mutation: '+title,()=>assert.throws(()=>validate(mutant)));
+}
+for(const [label,bytes] of [
+  ['invalid UTF8 lead',Buffer.from([0xc0,0xaf])],
+  ['invalid continuation',Buffer.from([0x80])],
+  ['truncated UTF8',Buffer.from([0xe2,0x82])],
+  ['non-UTF8 byte',Buffer.from([0xff])],
+  ['NUL in file',Buffer.concat([Buffer.from(source,'utf8'),Buffer.from([0])])],
+  ['BOM prefix',Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),Buffer.from(source,'utf8')])],
+]) {
+  test('reject malformed or unsafe raw CODEOWNERS bytes: '+label,()=>{
+    assert.throws(()=>validate(decodePolicy(bytes)));
+  });
+}
+test('reject invalid decoder inputs',()=>{
+  for(const candidate of ['',null,{},42]) assert.throws(()=>decodePolicy(candidate));
+});
+test('accept only exact NFC policy text parsed from actual raw file',()=>{
+  assert.equal(decodePolicy(readFileSync(policyUrl)),source);
+  assert.deepEqual(validate(source),expected);
 });
