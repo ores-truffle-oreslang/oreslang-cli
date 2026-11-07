@@ -5,7 +5,7 @@ function fixture(t=WAVE[0]){
 return {
 pr:{merged:true,merged_at:'2026-11-07T00:22:22Z',merge_commit_sha:t.merge,head:{sha:t.head},base:{ref:'main'},user:{id:11}},
 branch:{name:'main',protected:true,commit:{sha:t.merge}},
-protection:{enforce_admins:{enabled:true},required_status_checks:{strict:true},required_pull_request_reviews:{required_approving_review_count:1,require_code_owner_reviews:true,dismiss_stale_reviews:true}},
+protection:{enforce_admins:{enabled:true},allow_force_pushes:{enabled:false},allow_deletions:{enabled:false},required_status_checks:{strict:true,contexts:['CI / rust']},required_pull_request_reviews:{required_approving_review_count:1,require_code_owner_reviews:true,dismiss_stale_reviews:true}},
 rulesets:[],compare:{status:'identical',behind_by:0,base_commit:{sha:t.merge}},
 run:{id:t.run,event:'push',head_sha:t.merge,status:'completed',conclusion:'success',run_attempt:1},
 jobs:{total_count:1,jobs:[{id:99,name:'test',run_id:t.run,run_attempt:1,runner_id:42,status:'completed',conclusion:'success',steps:[{number:1,name:'Test',status:'completed',conclusion:'success'}]}]},
@@ -123,4 +123,31 @@ test('changes requested by another reviewer remains an explicit blocker',()=>{
  const e=fixture();
  e.reviews.push({user:{id:55},state:'CHANGES_REQUESTED',commit_id:WAVE[0].head,submitted_at:'2026-11-07T00:13:00Z'});
  denied(e,'OUTSTANDING_CHANGES_REQUESTED');
+});
+
+
+const protectionMutations=[
+ ['missing approval minimum',e=>delete e.protection.required_pull_request_reviews.required_approving_review_count],
+ ['zero approval minimum',e=>e.protection.required_pull_request_reviews.required_approving_review_count=0],
+ ['string approval minimum',e=>e.protection.required_pull_request_reviews.required_approving_review_count='1'],
+ ['fractional approval minimum',e=>e.protection.required_pull_request_reviews.required_approving_review_count=0.5],
+ ['null review policy',e=>e.protection.required_pull_request_reviews=null],
+ ['missing enforce administrators',e=>delete e.protection.enforce_admins],
+ ['force pushes allowed',e=>e.protection.allow_force_pushes.enabled=true],
+ ['force push setting missing',e=>delete e.protection.allow_force_pushes],
+ ['deletion allowed',e=>e.protection.allow_deletions.enabled=true],
+ ['deletion setting missing',e=>delete e.protection.allow_deletions],
+ ['empty required checks',e=>e.protection.required_status_checks.contexts=[]],
+ ['missing check list',e=>delete e.protection.required_status_checks.contexts],
+ ['duplicate required check',e=>e.protection.required_status_checks.contexts=['CI / rust','CI / rust']],
+ ['blank required check',e=>e.protection.required_status_checks.contexts=['']],
+ ['whitespace check spoof',e=>e.protection.required_status_checks.contexts=['CI / rust ']],
+ ['missing strict status setting',e=>delete e.protection.required_status_checks.strict],
+ ['required status strict false',e=>e.protection.required_status_checks.strict=false],
+ ['protected branch false',e=>e.branch.protected=false],
+ ['missing ruleset collection',e=>delete e.rulesets],
+];
+for(const [name,mutate] of protectionMutations)test('branch governance fail-closed: '+name,()=>{
+ const e=fixture();mutate(e);denied(e,'ENFORCED_BRANCH_POLICY_UNVERIFIED');
+ assert.equal(evaluateEvidence(WAVE[0],e).verdict,'BLOCKED');
 });
