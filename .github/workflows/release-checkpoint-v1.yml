@@ -51,5 +51,25 @@ jobs:
           node --version
           node --check tools/release-checkpoint-v1/verify.mjs
           node --check tests/release-checkpoint-v1.test.mjs
-          node --test tests/release-assurance-v1.test.mjs tests/release-trust-registry-v1.test.mjs tests/release-checkpoint-v1.test.mjs
+          node --test tests/release-assurance-v1.test.mjs tests/release-trust-registry-v1.test.mjs tests/release-checkpoint-v1.test.mjs | tee "$RUNNER_TEMP/atto-release-checkpoint.tap"
+          node --input-type=module - "$RUNNER_TEMP/atto-release-checkpoint.tap" <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const lines = readFileSync(process.argv[2], 'utf8').split(/\r?\n/);
+          const count = key => {
+            const prefix = '# ' + key + ' ';
+            const matches = lines.filter(line => line.startsWith(prefix));
+            if (matches.length !== 1 || !/^[0-9]+$/.test(matches[0].slice(prefix.length)))
+              throw Error('missing, duplicate, or malformed TAP counter: ' + key);
+            return Number(matches[0].slice(prefix.length));
+          };
+          const total = count('tests');
+          const passed = count('pass');
+          const failed = count('fail');
+          const skipped = count('skipped');
+          const cancelled = count('cancelled');
+          if (total < 150 || passed !== total || failed !== 0 ||
+              skipped !== 0 || cancelled !== 0)
+            throw Error('insufficient executed/admitted tests or nonpassing/ignored cases');
+          console.log('ACTUAL_NODE_TESTS_PASS=' + total);
+          NODE
           echo "NON_AUTHORIZING_LOCAL_ONLY: no durable CAS, authenticated GitHub evidence, trusted clock or compiler-backed guest release"

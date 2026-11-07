@@ -303,3 +303,60 @@ for(const field of ['schema','checkpoint_sha256','intent_sha256','ledger_id',
     pinEdit:p=>{delete p[field];}
   }));
 }
+
+
+// Two different, validly signed intents for the same checkpoint can both
+// pass *local* evaluation. Neither can consume that high-water state.
+// Only an independently authenticated, linearizable CAS can choose a winner.
+test('parallel fork: same checkpoint and sequence cannot claim a ledger commit',()=>{
+  const a=make();
+  const b=make({intentEdit:i=>i.nonce='4'.repeat(64)});
+  assert.equal(sha(a.checkpointEnvelopeBytes),sha(b.checkpointEnvelopeBytes));
+  assert.notEqual(sha(a.intentEnvelopeBytes),sha(b.intentEnvelopeBytes));
+  for(const fixture of [a,b]){
+    const v=verifySequenceLinkedCandidate(fixture);
+    assert.equal(v.classification,'SEQUENCE_LINKED_LOCAL_CANDIDATE');
+    assert.equal(v.sequence,12);
+    assert.equal(v.release_authorized,false);
+    assert.equal(v.ledger_cas_committed,false);
+    assert.equal(v.authenticated_github,false);
+  }
+});
+
+// Each mutation deliberately re-pins the *changed* bytes to ensure it is
+// rejected by envelope admission/signature verification, not merely because
+// the outer envelope digest was different from the externally supplied pin.
+const signedEnvelopeMutations=[
+  ['missing payload type',e=>{delete e.payloadType;}],
+  ['wrong DSSE domain',e=>{e.payloadType='application/vnd.other+json';}],
+  ['missing payload',e=>{delete e.payload;}],
+  ['noncanonical base64 payload',e=>{e.payload='Zg=';}],
+  ['invalid JSON payload',e=>{e.payload=Buffer.from('{').toString('base64');}],
+  ['missing signature array',e=>{delete e.signatures;}],
+  ['empty signature array',e=>{e.signatures=[];}],
+  ['multiple signatures',e=>{e.signatures.push({...e.signatures[0]});}],
+  ['extra envelope key',e=>{e.extra='untrusted';}],
+  ['unknown signing keyid',e=>{e.signatures[0].keyid=id(outsider);}],
+  ['zeroed signature bytes',e=>{e.signatures[0].sig=Buffer.alloc(64).toString('base64');}],
+  ['noncanonical signature base64',e=>{e.signatures[0].sig='AA=';}],
+  ['missing signature field',e=>{delete e.signatures[0].sig;}],
+  ['altered signed payload',e=>{e.payload=Buffer.from('{}').toString('base64');}],
+  ['uppercase keyid alias',e=>{e.signatures[0].keyid=e.signatures[0].keyid.toUpperCase();}],
+];
+for(const [side,field,pinField] of [
+ ['checkpoint','checkpointEnvelopeBytes','checkpoint_sha256'],
+ ['intent','intentEnvelopeBytes','intent_sha256']
+]){
+  for(const [name,mutate] of signedEnvelopeMutations){
+    test('deny signed '+side+' DSSE: '+name,()=>{
+      const v=make(),env=JSON.parse(v[field]);
+      mutate(env);
+      v[field]=Buffer.from(JSON.stringify(env));
+      v.ledgerPin[pinField]=sha(v[field]);
+      const verdict=verifySequenceLinkedCandidate(v);
+      assert.equal(verdict.classification,'DENIED',JSON.stringify(verdict));
+      assert.equal(verdict.release_authorized,false);
+      assert.equal(verdict.ledger_cas_committed,false);
+    });
+  }
+}
