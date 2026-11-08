@@ -58,7 +58,11 @@ The signed payload has exactly the fields `schema`, `subject`, `governance`,
   artifact filename/basename, actual SHA-256 and positive byte length.
 - `governance`: **asserted** protected-main, no bypass, required code-owner
   approval, stale-review dismissal, PR author, code-owner identities, required
-  check contexts.
+  check contexts. The v1 schema binds **exactly one** required check
+  context to its single workflow job receipt; multiple asserted required
+  contexts without separate authenticated jobs are rejected. Recorded
+  immutable-checkout steps must precede test execution and step numbers
+  must appear in increasing order.
 - `reviews`: ordered or unordered historical approvals/changes requested,
   dismissed or commented. The validator chooses the latest event for every
   case-insensitive reviewer identity. It rejects changed heads, unknown review

@@ -208,3 +208,127 @@ test('standalone CLI exits 3 for local candidate, 1 on rejected claim, 2 for inv
   const missing=run([...args.slice(0,5),'--artifact','/no/such/file']);
   assert.equal(missing.status,2,missing.stderr);
 });
+
+
+test('five synthetic backend receipts cannot impersonate another compiler repository', () => {
+  for (let index = 0; index < backendNames.length; ++index) {
+    const m = fixture();
+    const expected = backendNames[index];
+    const other = backendNames[(index + 1) % backendNames.length];
+    m.backends[index].repository = 'ores-truffle-oreslang/oreslang-source.' + other;
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', expected + ' relabeled as ' + other);
+    assert.equal(result.reason, 'BACKEND_GUEST_RECEIPT_UNVERIFIED');
+    assert.equal(result.release_authorized, false);
+    assert.equal(result.compiler_guest_parity_proven, false);
+  }
+});
+
+test('lookalike, forked and spelling-variant compiler repos never count as guests', () => {
+  for (const replacement of [
+    'ores-truffle-oreslang/oreslang-source.java-shadow',
+    'ores-truffle-oreslang/oreslang-source.java.backup',
+    'ores-truffle-oreslang/oreslang-source.Java',
+    'other-organization/oreslang-source.java',
+    'ores-truffle-oreslang/oreslang-source.fake',
+  ]) {
+    const m = fixture();
+    m.backends[0].repository = replacement;
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', replacement);
+    assert.equal(result.release_authorized, false);
+  }
+});
+
+test('canonical five-repo identity remains a non-authorizing synthetic candidate', () => {
+  const m = fixture();
+  for (const b of m.backends) {
+    assert.equal(b.repository, 'ores-truffle-oreslang/oreslang-source.' + b.backend);
+  }
+  const result = check(m);
+  assert.equal(result.classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  assert.equal(result.receipt_count, 5);
+  assert.equal(result.release_authorized, false);
+  assert.equal(result.compiler_guest_parity_proven, false);
+});
+
+
+test('signed backend receipts cannot reuse workflow run or job identities across repos', () => {
+  for (const [kind, mutate] of [
+    ['same job ID in distinct runs', m => { m.backends[4].job_id = m.backends[0].job_id; }],
+    ['same workflow run ID across canonical repositories', m => {
+      m.backends[4].run_id = m.backends[0].run_id;
+    }],
+    ['same run and job IDs despite distinct repo names', m => {
+      m.backends[4].run_id = m.backends[0].run_id;
+      m.backends[4].job_id = m.backends[0].job_id;
+    }],
+  ]) {
+    const m = fixture();
+    mutate(m);
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', kind);
+    assert.equal(result.reason, 'DUPLICATE_BACKEND_JOB_RECEIPT', kind);
+    assert.equal(result.release_authorized, false);
+    assert.equal(result.compiler_guest_parity_proven, false);
+  }
+});
+
+test('distinct source-owned run and job IDs preserve synthetic nonauthorization', () => {
+  const m = fixture();
+  assert.equal(new Set(m.backends.map(b => b.run_id)).size, backendNames.length);
+  assert.equal(new Set(m.backends.map(b => b.job_id)).size, backendNames.length);
+  const result = check(m);
+  assert.equal(result.classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  assert.equal(result.release_authorized, false);
+  assert.equal(result.compiler_guest_parity_proven, false);
+});
+
+
+test('one asserted successful workflow cannot falsely cover two required contexts', () => {
+  for (const required_contexts of [
+    ['release-assurance', 'compiler-negative'],
+    ['compiler-negative', 'release-assurance'],
+    ['release-assurance', 'release-signature', 'backend-conformance'],
+  ]) {
+    const m = fixture();
+    m.governance.required_contexts = required_contexts;
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', required_contexts.join(','));
+    assert.equal(result.reason, 'GOVERNANCE_NOT_ASSERTED');
+    assert.equal(result.release_authorized, false);
+  }
+  assert.equal(check(fixture()).classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+});
+
+test('untrusted test execution before immutable checkout and reordered receipts fail closed', () => {
+  for (const [description, mutate] of [
+    ['checkout after tests', m => {
+      const [checkout, execution] = m.workflow.steps;
+      m.workflow.steps = [
+        { ...execution, number: 1 },
+        { ...checkout, number: 2 },
+      ];
+      m.workflow.checkout_step_number = 2;
+      m.workflow.test_step_number = 1;
+    }],
+    ['unordered executed step list', m => {
+      m.workflow.steps.reverse();
+    }],
+    ['nonmonotonic step numbers', m => {
+      m.workflow.steps[0].number = 5;
+      m.workflow.checkout_step_number = 5;
+    }],
+  ]) {
+    const m = fixture();
+    mutate(m);
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', description);
+    assert.equal(result.reason, 'REQUIRED_EXECUTED_STEP_MISSING', description);
+    assert.equal(result.release_authorized, false);
+    assert.equal(result.compiler_guest_parity_proven, false);
+  }
+  const valid = check(fixture());
+  assert.equal(valid.classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  assert.equal(valid.release_authorized, false);
+});
