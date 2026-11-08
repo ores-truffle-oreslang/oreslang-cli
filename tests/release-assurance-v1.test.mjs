@@ -251,3 +251,35 @@ test('canonical five-repo identity remains a non-authorizing synthetic candidate
   assert.equal(result.release_authorized, false);
   assert.equal(result.compiler_guest_parity_proven, false);
 });
+
+
+test('signed backend receipts cannot reuse workflow run or job identities across repos', () => {
+  for (const [kind, mutate] of [
+    ['same job ID in distinct runs', m => { m.backends[4].job_id = m.backends[0].job_id; }],
+    ['same workflow run ID across canonical repositories', m => {
+      m.backends[4].run_id = m.backends[0].run_id;
+    }],
+    ['same run and job IDs despite distinct repo names', m => {
+      m.backends[4].run_id = m.backends[0].run_id;
+      m.backends[4].job_id = m.backends[0].job_id;
+    }],
+  ]) {
+    const m = fixture();
+    mutate(m);
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', kind);
+    assert.equal(result.reason, 'DUPLICATE_BACKEND_JOB_RECEIPT', kind);
+    assert.equal(result.release_authorized, false);
+    assert.equal(result.compiler_guest_parity_proven, false);
+  }
+});
+
+test('distinct source-owned run and job IDs preserve synthetic nonauthorization', () => {
+  const m = fixture();
+  assert.equal(new Set(m.backends.map(b => b.run_id)).size, backendNames.length);
+  assert.equal(new Set(m.backends.map(b => b.job_id)).size, backendNames.length);
+  const result = check(m);
+  assert.equal(result.classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  assert.equal(result.release_authorized, false);
+  assert.equal(result.compiler_guest_parity_proven, false);
+});
