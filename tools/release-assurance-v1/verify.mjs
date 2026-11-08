@@ -59,7 +59,16 @@ export function dssePAE(payloadType, payload) {
 }
 
 export function trustKeyId(publicPem) {
-  const key = createPublicKey(publicPem);
+  // The trust anchor must be a single PUBLIC KEY PEM block. createPublicKey()
+  // also accepts private-key material and silently derives its public half;
+  // do not accept or parse private signing secrets as a verifier trust input.
+  const pem = Buffer.isBuffer(publicPem)
+    ? new TextDecoder('utf-8', { fatal: true }).decode(publicPem)
+    : publicPem;
+  if (typeof pem !== 'string' ||
+      !/^-----BEGIN PUBLIC KEY-----\r?\n(?:[A-Za-z0-9+/]{1,64}={0,2}\r?\n)+-----END PUBLIC KEY-----\r?\n?$/.test(pem))
+    throw Error('trusted key must be a single public SPKI PEM block');
+  const key = createPublicKey(pem);
   if (key.asymmetricKeyType !== 'ed25519' || key.type !== 'public')
     throw Error('trusted public key must be Ed25519 SPKI');
   return { key, keyid: digest(key.export({ type: 'spki', format: 'der' })) };
