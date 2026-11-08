@@ -23,7 +23,11 @@ node tools/release-assurance-v1/verify.mjs \
 ```
 
 The caller must obtain and pin the trusted public key **out of band**. A
-public key embedded in the envelope does not establish trust. Never use a
+public key embedded in the envelope does not establish trust. The trust file
+must contain **exactly one Ed25519 SPKI `-----BEGIN PUBLIC KEY-----` PEM
+block**. Private-key PEM blocks (including PKCS#8), concatenated PEM blocks,
+extra text, and noncanonical PEM wrappers are rejected; the verifier never
+accepts a signing private key as a trust-anchor input. Never use a
 self-generated test key as a production trust anchor. Signing/release
 operations are deliberately absent from this verifier.
 
