@@ -151,8 +151,7 @@ fn test_runner_exit_1_is_a_finding_but_term_and_exit_2_are_inconclusive() {
         ("#!/bin/sh\nexit 7\n", 7),
     ] {
         fs::write(&script, source).expect("write test runner");
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o700))
-            .expect("chmod test runner");
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).expect("chmod test runner");
         let output = Command::new(env!("CARGO_BIN_EXE_atto"))
             .args(["test", "--fuzz"])
             .env("ATTO_TEST_CLI", &script)
