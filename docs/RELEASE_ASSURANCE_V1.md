@@ -70,6 +70,9 @@ The signed payload has exactly the fields `schema`, `subject`, `governance`,
 - `backends`: exactly five unique `java`, `llvm`, `net`, `wasm`, `forge`
   candidate guest receipts, each with its **own** backend repo head, tree,
   run/attempt/job/runner/step identity and toolchain/fixture/output digests.
+  Each named backend must identify its canonical
+  `ores-truffle-oreslang/oreslang-source.<backend>` repository; a copied job
+  from another repository is denied even when the signed shape is otherwise valid.
   `HOST_ONLY`, `NOT_EXECUTED`, `steps=[]`, mismatching fixture/output hashes,
   or missing backend results cannot pass the schema.
 
@@ -84,8 +87,12 @@ independent authenticated source-side execution and matching blobs.
   Ed25519 pairs only in process for synthetic local fixtures.
 - Input paths use descriptor-pinned `O_NOFOLLOW` and `O_NONBLOCK`; deny symlink,
   multi-linked, nonregular, empty, and oversized files, and inode/size/mtime/
-  ctime changes during read. Envelope max 256 KiB, public key max 16 KiB,
-  release artifact max 64 MiB.
+  ctime changes during read. Stable symlinked ancestor directories and lexical
+  `..` path segments are denied; the leaf pathname and ancestors are checked
+  again after reading. These pathname checks are **not** race-free against a
+  hostile same-UID process able to replace directories between checks; use
+  private, trusted input directories when preparing candidate evidence.
+  Envelope max 256 KiB, public key max 16 KiB, release artifact max 64 MiB.
 - Real Node 22 tests cover 40 individual mutation cases, 1,024 compound
   boolean-security combinations, key substitution, artifact tampering,
   malformed canonical JSON/UTF-8/base64, unsafe paths, and the CLI nonzero
