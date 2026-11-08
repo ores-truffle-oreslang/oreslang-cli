@@ -150,8 +150,10 @@ function validateReceipt(m) {
 }
 
 // Successful result is ONLY a signed local candidate, never a verified release.
-export function verifySignedCandidate({ envelopeBytes, trustedKeyPem, artifactBytes }) {
+export function verifySignedCandidate(input) {
   try {
+    if (!isObj(input)) return deny('INVALID_BINARY_INPUT');
+    const { envelopeBytes, trustedKeyPem, artifactBytes } = input;
     if (!Buffer.isBuffer(envelopeBytes) || !Buffer.isBuffer(artifactBytes))
       return deny('INVALID_BINARY_INPUT');
     if (envelopeBytes.length < 1 || envelopeBytes.length > MAX_DOCUMENT)
