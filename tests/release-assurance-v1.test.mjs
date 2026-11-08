@@ -332,3 +332,26 @@ test('file admission enforces exact sizes and rejects unsafe bounds; CLI cannot 
     assert.equal(result.release_authorized, false);
   }
 });
+
+
+test('five backend receipt repositories must match their named compiler backends, not just a GitHub-shaped slug', () => {
+  assert.equal(check().classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  const substitutions = [
+    { backend: 'java', repository: 'ores-truffle-oreslang/oreslang-source.llvm' },
+    { backend: 'net', repository: 'ores-truffle-oreslang/oreslang-source.net-fake' },
+    { backend: 'wasm', repository: 'ores-truffle-oreslang/oreslang-cli' },
+    { backend: 'forge', repository: 'ores-truffle-oreslang/oreslang-source.java' }
+  ];
+  for (const [i, substitution] of substitutions.entries()) {
+    const manifest = fixture();
+    const entry = manifest.backends.find(item => item.backend === substitution.backend);
+    entry.repository = substitution.repository;
+    // Preserve all signature, digest, distinct-job and five-backend-shape fields:
+    // ONLY the source attribution is invalid.
+    const result = check(manifest);
+    assert.equal(result.classification, 'DENIED', 'repository substitution ' + i);
+    assert.equal(result.reason, 'BACKEND_REPOSITORY_MISMATCH', 'reason ' + i);
+    assert.equal(result.release_authorized, false);
+    assert.equal(result.compiler_guest_parity_proven, false);
+  }
+});
