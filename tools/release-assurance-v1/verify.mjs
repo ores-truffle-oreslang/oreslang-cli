@@ -80,7 +80,7 @@ function validateReceipt(m) {
       g.require_codeowner_review !== true || g.dismiss_stale_reviews !== true ||
       !string(g.author) || !Array.isArray(g.codeowners) || g.codeowners.length === 0 ||
       !g.codeowners.every(string) || !unique(g.codeowners.map(v => v.toLowerCase())) ||
-      !Array.isArray(g.required_contexts) || g.required_contexts.length === 0 ||
+      !Array.isArray(g.required_contexts) || g.required_contexts.length !== 1 ||
       !g.required_contexts.every(string) || !unique(g.required_contexts))
     return 'GOVERNANCE_NOT_ASSERTED';
   if (!Array.isArray(m.reviews) || m.reviews.length === 0) return 'MISSING_REVIEWS';
@@ -121,7 +121,9 @@ function validateReceipt(m) {
       step.conclusion === 'success') ||
       !w.steps.some(step => step.number === w.checkout_step_number && step.name === 'Verify immutable source') ||
       !w.steps.some(step => step.number === w.test_step_number && step.name === 'Execute source tests') ||
-      w.checkout_step_number === w.test_step_number)
+      w.checkout_step_number >= w.test_step_number ||
+      !w.steps.every((step, index) => index === 0 ||
+        w.steps[index - 1].number < step.number))
     return 'REQUIRED_EXECUTED_STEP_MISSING';
   if (!Array.isArray(m.backends) || m.backends.length !== BACKENDS.length ||
       !unique(m.backends.map(b => b?.backend)) ||
