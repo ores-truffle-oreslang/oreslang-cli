@@ -259,3 +259,132 @@ test('all five claimed guest backends bind exactly to their canonical source rep
   }
   assert.equal(checked,20);
 });
+
+
+test('missing or malformed top-level candidate input returns DENIED without throwing',()=>{
+  for(const input of [undefined,null,0,false,'payload',[],new Map(),{}]){
+    let result;
+    assert.doesNotThrow(()=>{result=verifySignedCandidate(input)});
+    assert.equal(result.classification,'DENIED');
+    assert.equal(result.release_authorized,false);
+    assert.equal(result.compiler_guest_parity_proven,false);
+  }
+});
+test('untrusted property getter messages cannot escape through candidate denial',()=>{
+  const marker='PRIVATE-NO-EXFIL-MARKER';
+  const input={get envelopeBytes(){throw Error(marker)}};
+  const result=verifySignedCandidate(input);
+  assert.equal(result.classification,'DENIED');
+  assert.equal(result.reason,'INVALID_INPUT_OR_CRYPTO');
+  assert.ok(!JSON.stringify(result).includes(marker));
+});
+test('malformed buffer fields never elevate to local candidate',()=>{
+  for(const input of [
+    {envelopeBytes:new Uint8Array(16),trustedKeyPem:spki,artifactBytes:bytes},
+    {envelopeBytes:Buffer.alloc(0),trustedKeyPem:spki,artifactBytes:bytes},
+    {envelopeBytes:Buffer.from('x'),trustedKeyPem:spki,artifactBytes:null},
+    {envelopeBytes:Buffer.from('x'),trustedKeyPem:spki,artifactBytes:Buffer.alloc(0)}
+  ]){
+    const result=verifySignedCandidate(input);
+    assert.equal(result.classification,'DENIED');
+    assert.equal(result.release_authorized,false);
+  }
+});
+
+test('signed backend receipts cannot reuse workflow run or job identities across repos', () => {
+  for (const [kind, mutate] of [
+    ['same job ID in distinct runs', m => { m.backends[4].job_id = m.backends[0].job_id; }],
+    ['same workflow run ID across canonical repositories', m => {
+      m.backends[4].run_id = m.backends[0].run_id;
+    }],
+    ['same run and job IDs despite distinct repo names', m => {
+      m.backends[4].run_id = m.backends[0].run_id;
+      m.backends[4].job_id = m.backends[0].job_id;
+    }],
+  ]) {
+    const m = fixture();
+    mutate(m);
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', kind);
+    assert.equal(result.reason, 'DUPLICATE_BACKEND_JOB_RECEIPT', kind);
+    assert.equal(result.release_authorized, false);
+    assert.equal(result.compiler_guest_parity_proven, false);
+  }
+});
+
+test('distinct source-owned run and job IDs preserve synthetic nonauthorization', () => {
+  const m = fixture();
+  assert.equal(new Set(m.backends.map(b => b.run_id)).size, backendNames.length);
+  assert.equal(new Set(m.backends.map(b => b.job_id)).size, backendNames.length);
+  const result = check(m);
+  assert.equal(result.classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  assert.equal(result.release_authorized, false);
+  assert.equal(result.compiler_guest_parity_proven, false);
+});
+
+
+
+test('signed workflow steps must be complete, ordered and source-verified before execution', () => {
+  assert.equal(check(fixture()).classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  const cases=[
+    ['source check after test', w => {
+      w.steps.reverse();
+      w.steps[0].number=1; w.steps[1].number=2;
+      w.test_step_number=1; w.checkout_step_number=2;
+    }],
+    ['test claims earlier step despite ordered list', w => {
+      w.steps[0].name='Execute source tests';
+      w.steps[1].name='Verify immutable source';
+      w.test_step_number=1; w.checkout_step_number=2;
+    }],
+    ['out-of-order receipts', w => {
+      w.steps.reverse();
+    }],
+    ['sparse step numbering', w => {
+      w.steps[1].number=3; w.test_step_number=3;
+    }],
+    ['non-one-indexed receipts', w => {
+      w.steps[0].number=7; w.steps[1].number=8;
+      w.checkout_step_number=7; w.test_step_number=8;
+    }],
+    ['duplicate verification name', w => {
+      w.steps.push({number:3,name:'Verify immutable source',
+        status:'completed',conclusion:'success'});
+    }],
+    ['duplicate test name', w => {
+      w.steps.push({number:3,name:'Execute source tests',
+        status:'completed',conclusion:'success'});
+    }],
+    ['untrusted setup inserted before immutable check', w => {
+      w.steps.unshift({number:1,name:'Execute source tests',
+        status:'completed',conclusion:'success'});
+      w.steps[1].number=2; w.steps[2].number=3;
+      w.checkout_step_number=2; w.test_step_number=1;
+    }]
+  ];
+  for (const [label,mutate] of cases) {
+    const m=fixture();
+    mutate(m.workflow);
+    const result=check(m);
+    assert.equal(result.classification,'DENIED',label);
+    assert.equal(result.release_authorized,false,label);
+    assert.equal(result.compiler_guest_parity_proven,false,label);
+  }
+});
+
+test('contiguous intermediate steps preserve exactly one immutable check and one test', () => {
+  const m=fixture();
+  m.workflow.steps=[
+    {number:1,name:'Pin toolchain',status:'completed',conclusion:'success'},
+    {number:2,name:'Verify immutable source',status:'completed',conclusion:'success'},
+    {number:3,name:'Setup Node',status:'completed',conclusion:'success'},
+    {number:4,name:'Execute source tests',status:'completed',conclusion:'success'},
+    {number:5,name:'Audit negatives',status:'completed',conclusion:'success'}
+  ];
+  m.workflow.checkout_step_number=2;
+  m.workflow.test_step_number=4;
+  const result=check(m);
+  assert.equal(result.classification,'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  assert.equal(result.release_authorized,false);
+  assert.equal(result.compiler_guest_parity_proven,false);
+});
