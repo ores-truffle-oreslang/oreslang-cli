@@ -487,3 +487,40 @@ test('unassigned or fictional workflow test steps never become a signed candidat
     assert.equal(result.compiler_guest_parity_proven,false);
   }
 });
+
+
+
+test('missing or malformed top-level registry request denies instead of throwing',()=>{
+  for(const input of [undefined,null,0,false,'registry',[],new Map(),{}]){
+    let result;
+    assert.doesNotThrow(()=>{result=verifyPolicyBoundCandidate(input)});
+    assert.equal(result.classification,'DENIED');
+    assert.equal(result.release_authorized,false);
+    assert.equal(result.authenticated_github,false);
+  }
+});
+test('untrusted registry property getter cannot print private exception strings',()=>{
+  const marker='SECRET-REGISTRY-EXFIL-MARKER';
+  const input={get registryEnvelopeBytes(){throw Error(marker)}};
+  const result=verifyPolicyBoundCandidate(input);
+  assert.equal(result.classification,'DENIED');
+  assert.equal(result.reason,'INVALID_TRUST_POLICY_OR_INPUT');
+  assert.equal(JSON.stringify(result).includes(marker),false);
+});
+test('wrong type for signed policy bytes always returns denial',()=>{
+  for(const mutate of [
+    x=>{x.registryEnvelopeBytes=undefined},
+    x=>{x.registryEnvelopeBytes='fake'},
+    x=>{x.candidateEnvelopeBytes=new Uint8Array(64)},
+    x=>{x.trustedRootPem=null},
+    x=>{x.expected=null},
+    x=>{x.now=null},
+    x=>{x.artifactBytes='fake'}
+  ]){
+    const input=make();mutate(input);
+    const result=verifyPolicyBoundCandidate(input);
+    assert.equal(result.classification,'DENIED');
+    assert.equal(result.release_authorized,false);
+    assert.equal(result.compiler_guest_parity_proven,false);
+  }
+});

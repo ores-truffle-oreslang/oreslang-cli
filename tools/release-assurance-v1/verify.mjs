@@ -116,18 +116,23 @@ function validateReceipt(m) {
       w.status !== 'completed' || w.conclusion !== 'success' ||
       !Array.isArray(w.steps) || w.steps.length < 2 ||
       !unique(w.steps.map(step => step?.number))) return 'WORKFLOW_NOT_BOUND_OR_UNEXECUTED';
-  if (!w.steps.every(step => eqKeys(step, ['number', 'name', 'status', 'conclusion']) &&
-      pos(step.number) && string(step.name) && step.status === 'completed' &&
+  if (!w.steps.every((step, index) => eqKeys(step, ['number', 'name', 'status', 'conclusion']) &&
+      step.number === index + 1 && string(step.name) && step.status === 'completed' &&
       step.conclusion === 'success') ||
       !w.steps.some(step => step.number === w.checkout_step_number && step.name === 'Verify immutable source') ||
       !w.steps.some(step => step.number === w.test_step_number && step.name === 'Execute source tests') ||
-      w.checkout_step_number === w.test_step_number)
+      // The immutable source identity must have been verified before tests ran.
+      w.checkout_step_number >= w.test_step_number ||
+      w.steps.filter(step => step.name === 'Verify immutable source').length !== 1 ||
+      w.steps.filter(step => step.name === 'Execute source tests').length !== 1)
     return 'REQUIRED_EXECUTED_STEP_MISSING';
   if (!Array.isArray(m.backends) || m.backends.length !== BACKENDS.length ||
       !unique(m.backends.map(b => b?.backend)) ||
       !BACKENDS.every(name => m.backends.some(b => b?.backend === name)))
     return 'FIVE_BACKEND_RECEIPTS_MISSING';
   const tuples = [];
+  const runIds = [];
+  const jobIds = [];
   let canonicalFixture, canonicalOutput;
   for (const b of m.backends) {
     if (!eqKeys(b, ['backend', 'repository', 'head_sha', 'tree_sha', 'classification',
@@ -146,14 +151,21 @@ function validateReceipt(m) {
     if (b.fixture_sha256 !== canonicalFixture || b.output_sha256 !== canonicalOutput)
       return 'BACKEND_CANONICAL_OUTPUT_MISMATCH';
     tuples.push(`${b.repository}:${b.run_id}:${b.run_attempt}:${b.job_id}`);
+    runIds.push(b.run_id);
+    jobIds.push(b.job_id);
   }
-  if (!unique(tuples)) return 'DUPLICATE_BACKEND_JOB_RECEIPT';
+  // A provider run ID or job ID cannot represent distinct executions in
+  // different canonical repositories, even when each repo-specific tuple differs.
+  if (!unique(tuples) || !unique(runIds) || !unique(jobIds))
+    return 'DUPLICATE_BACKEND_JOB_RECEIPT';
   return null;
 }
 
 // Successful result is ONLY a signed local candidate, never a verified release.
-export function verifySignedCandidate({ envelopeBytes, trustedKeyPem, artifactBytes }) {
+export function verifySignedCandidate(input) {
   try {
+    if (!isObj(input)) return deny('INVALID_BINARY_INPUT');
+    const { envelopeBytes, trustedKeyPem, artifactBytes } = input;
     if (!Buffer.isBuffer(envelopeBytes) || !Buffer.isBuffer(artifactBytes))
       return deny('INVALID_BINARY_INPUT');
     if (envelopeBytes.length < 1 || envelopeBytes.length > MAX_DOCUMENT)
@@ -186,7 +198,7 @@ export function verifySignedCandidate({ envelopeBytes, trustedKeyPem, artifactBy
       repository: manifest.subject.repository, head_sha: manifest.subject.head_sha,
       tree_sha: manifest.subject.tree_sha, artifact_sha256: manifest.subject.artifact.sha256,
       keyid, receipt_count: manifest.backends.length };
-  } catch (error) { return deny('INVALID_INPUT_OR_CRYPTO: ' + error.message); }
+  } catch { return deny('INVALID_INPUT_OR_CRYPTO'); }
 }
 
 // File descriptor is pinned before reading; block FIFOs, sockets, symlinks,
