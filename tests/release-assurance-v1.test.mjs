@@ -283,3 +283,52 @@ test('distinct source-owned run and job IDs preserve synthetic nonauthorization'
   assert.equal(result.release_authorized, false);
   assert.equal(result.compiler_guest_parity_proven, false);
 });
+
+
+test('one asserted successful workflow cannot falsely cover two required contexts', () => {
+  for (const required_contexts of [
+    ['release-assurance', 'compiler-negative'],
+    ['compiler-negative', 'release-assurance'],
+    ['release-assurance', 'release-signature', 'backend-conformance'],
+  ]) {
+    const m = fixture();
+    m.governance.required_contexts = required_contexts;
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', required_contexts.join(','));
+    assert.equal(result.reason, 'GOVERNANCE_NOT_ASSERTED');
+    assert.equal(result.release_authorized, false);
+  }
+  assert.equal(check(fixture()).classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+});
+
+test('untrusted test execution before immutable checkout and reordered receipts fail closed', () => {
+  for (const [description, mutate] of [
+    ['checkout after tests', m => {
+      const [checkout, execution] = m.workflow.steps;
+      m.workflow.steps = [
+        { ...execution, number: 1 },
+        { ...checkout, number: 2 },
+      ];
+      m.workflow.checkout_step_number = 2;
+      m.workflow.test_step_number = 1;
+    }],
+    ['unordered executed step list', m => {
+      m.workflow.steps.reverse();
+    }],
+    ['nonmonotonic step numbers', m => {
+      m.workflow.steps[0].number = 5;
+      m.workflow.checkout_step_number = 5;
+    }],
+  ]) {
+    const m = fixture();
+    mutate(m);
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', description);
+    assert.equal(result.reason, 'REQUIRED_EXECUTED_STEP_MISSING', description);
+    assert.equal(result.release_authorized, false);
+    assert.equal(result.compiler_guest_parity_proven, false);
+  }
+  const valid = check(fixture());
+  assert.equal(valid.classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  assert.equal(valid.release_authorized, false);
+});
