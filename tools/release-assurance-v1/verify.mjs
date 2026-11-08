@@ -2,7 +2,8 @@
 // Public, source-free, LOCAL cryptographic candidate verifier.
 // Neither a signature nor a JSON receipt authenticates GitHub/guest execution.
 import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto';
-import { openSync, fstatSync, readSync, closeSync, constants as fsConstants } from 'node:fs';
+import { openSync, fstatSync, lstatSync, readSync, closeSync, constants as fsConstants } from 'node:fs';
+import { join, parse, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const PAYLOAD_TYPE = 'application/vnd.atto.release-assurance.v1+json';
@@ -193,10 +194,29 @@ export function verifySignedCandidate({ envelopeBytes, trustedKeyPem, artifactBy
 
 // File descriptor is pinned before reading; block FIFOs, sockets, symlinks,
 // hardlinks, oversized objects, and mutations during read.
+// Refuse stable symlink redirects above a sensitive input, not only at its
+// leaf. This pathname walk is defense in depth; only a trusted private
+// directory can exclude a same-UID actor racing between checks.
+function assertSafeInputParents(path) {
+  if (path.split(/[\\/]/u).includes('..'))
+    throw Error('noncanonical input path parent');
+  const canonical = resolve(path);
+  const root = parse(canonical).root;
+  const components = canonical.slice(root.length).split(sep).filter(Boolean);
+  let parent = root;
+  for (const part of components.slice(0, -1)) {
+    parent = join(parent, part);
+    const entry = lstatSync(parent);
+    if (!entry.isDirectory() || entry.isSymbolicLink())
+      throw Error('symlinked or non-directory input parent');
+  }
+}
+
 export function readBoundedRegularFile(path, limit) {
   if (typeof path !== 'string' || !path || !Number.isSafeInteger(limit) || limit < 1 ||
       !Number.isInteger(fsConstants.O_NOFOLLOW) || !Number.isInteger(fsConstants.O_NONBLOCK))
     throw Error('unsafe file path/flags');
+  assertSafeInputParents(path);
   const fd = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
   try {
     const before = fstatSync(fd, { bigint: true });
@@ -216,6 +236,12 @@ export function readBoundedRegularFile(path, limit) {
         before.size !== after.size || BigInt(count) !== after.size ||
         before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs)
       throw Error('input mutated or exceeded bounded size');
+    // Catch a persistent parent/leaf swap during input admission. This is not
+    // equivalent to a race-free openat walk; the result is never authorization.
+    assertSafeInputParents(path);
+    const atPath = lstatSync(path, { bigint: true });
+    if (!atPath.isFile() || atPath.dev !== after.dev || atPath.ino !== after.ino)
+      throw Error('input pathname changed during bounded read');
     return Buffer.concat(parts, count);
   } finally { closeSync(fd); }
 }
