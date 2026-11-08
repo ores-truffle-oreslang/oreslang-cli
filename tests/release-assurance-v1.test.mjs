@@ -401,3 +401,49 @@ test('CLI refuses cryptographic candidate through a symlinked parent even with v
   assert.equal(denial.release_authorized, false);
   assert.equal(result.stdout, '');
 });
+
+
+test('trust-anchor admission rejects private signing secrets and multiple PEM blocks', () => {
+  const privatePem = pair.privateKey.export({ type: 'pkcs8', format: 'pem' });
+  const alternate = generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' });
+  const malformedKeys = [
+    privatePem,
+    Buffer.from(privatePem),
+    spki + privatePem,
+    privatePem + spki,
+    spki + alternate,
+    spki + '\nINJECTED DATA\n',
+    'UNTRUSTED PREFIX\n' + spki,
+    spki.replace('BEGIN PUBLIC KEY', 'BEGIN PRIVATE KEY'),
+    Buffer.from([0xff, 0xfe, 0xfd]),
+  ];
+  for (const [index, invalid] of malformedKeys.entries()) {
+    assert.throws(() => trustKeyId(invalid), 'invalid trust anchor ' + index);
+    const result = check(fixture(), { trustedKeyPem: invalid });
+    assert.equal(result.classification, 'DENIED', 'candidate ' + index);
+    assert.equal(result.release_authorized, false);
+  }
+  // A public PEM input with conventional CRLF line endings is still a
+  // single public trust anchor; never derive trust from the signed payload.
+  const crlf = spki.replace(/\n/g, '\r\n');
+  assert.equal(trustKeyId(Buffer.from(spki)).keyid, keyid);
+  assert.equal(trustKeyId(crlf).keyid, keyid);
+});
+
+test('standalone CLI cannot import a signing private key as its trusted public anchor', () => {
+  const d = mkdtempSync(join(tmpdir(), 'atto-assurance-private-trust-'));
+  const envPath = join(d, 'envelope.json');
+  const keyPath = join(d, 'secret.pkcs8.pem');
+  const artifactPath = join(d, 'artifact.bin');
+  writeFileSync(envPath, signed());
+  writeFileSync(keyPath, pair.privateKey.export({ type: 'pkcs8', format: 'pem' }));
+  writeFileSync(artifactPath, bytes);
+  const cli = resolve(import.meta.dirname, '../tools/release-assurance-v1/verify.mjs');
+  const run = spawnSync(process.execPath, [cli, '--envelope', envPath,
+    '--trusted-key', keyPath, '--artifact', artifactPath], { encoding: 'utf8' });
+  assert.equal(run.status, 1, run.stderr);
+  const result = JSON.parse(run.stdout);
+  assert.equal(result.classification, 'DENIED');
+  assert.equal(result.release_authorized, false);
+  assert.match(result.reason, /trusted key must be a single public SPKI PEM block/);
+});
