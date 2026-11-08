@@ -150,10 +150,10 @@ fn test_runner_exit_1_is_a_finding_but_term_and_exit_2_are_inconclusive() {
     let dir = tempfile_dir("exit-classes");
     let script = dir.join("runner.sh");
     for (source, expected) in [
-        ("#!/bin/sh\\nexit 1\\n", 1),
-        ("#!/bin/sh\\nexit 2\\n", 2),
-        ("#!/bin/sh\\nkill -TERM $\\n", 2),
-        ("#!/bin/sh\\nexit 7\\n", 7),
+        ("#!/bin/sh\nexit 1\n", 1),
+        ("#!/bin/sh\nexit 2\n", 2),
+        ("#!/bin/sh\nkill -TERM $$\n", 2),
+        ("#!/bin/sh\nexit 7\n", 7),
     ] {
         fs::write(&script, source).expect("write test runner");
         fs::set_permissions(&script, fs::Permissions::from_mode(0o700))
