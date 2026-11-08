@@ -69,7 +69,10 @@ The signed payload has exactly the fields `schema`, `subject`, `governance`,
   change requests.
 - `workflow`: asserted exact source commit/tree, positive run/attempt/job/
   runner identities, completed successful status, numbered **nonempty**
-  executed-step receipts and required immutable-checkout/test steps.
+  executed-step receipts and required immutable-checkout/test steps. Job step
+  numbers must be contiguous starting at 1; the uniquely named immutable-source
+  verification step must occur before the uniquely named source-test step. A
+  signed receipt that runs tests first or omits intervening steps is rejected.
 - `backends`: exactly five unique `java`, `llvm`, `net`, `wasm`, `forge`
   candidate guest receipts, each with its **own** backend repo head, tree,
   run/attempt/job/runner/step identity and toolchain/fixture/output digests.
@@ -77,6 +80,8 @@ The signed payload has exactly the fields `schema`, `subject`, `governance`,
   or missing backend results cannot pass the schema. Each backend label must
   identify its exact canonical `ores-truffle-oreslang/oreslang-source.<backend>`
   repository; cross-backend or unrelated-source substitutions are rejected.
+  Backend provider run IDs and job IDs must also be unique across all five
+  receipts, so one workflow cannot impersonate multiple compiler executions.
 
 Even a signed, schema-compliant source-free **synthetic fixture** can claim all
 five backends were executed. Thus a positive local result must **never** be
