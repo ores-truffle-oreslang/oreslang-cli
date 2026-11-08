@@ -134,6 +134,7 @@ function validateReceipt(m) {
         'run_id', 'run_attempt', 'job_id', 'runner_id', 'executed_steps',
         'toolchain_sha256', 'fixture_sha256', 'output_sha256']) ||
         !BACKENDS.includes(b.backend) || !REPO.test(b.repository) ||
+        b.repository !== 'ores-truffle-oreslang/oreslang-source.' + b.backend ||
         !sha1(b.head_sha) || !sha1(b.tree_sha) ||
         b.classification !== 'EXECUTED_COMPILER_GUEST' ||
         ![b.run_id,b.run_attempt,b.job_id,b.runner_id,b.executed_steps].every(pos) ||
