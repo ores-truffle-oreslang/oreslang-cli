@@ -80,7 +80,7 @@ function validateReceipt(m) {
       g.require_codeowner_review !== true || g.dismiss_stale_reviews !== true ||
       !string(g.author) || !Array.isArray(g.codeowners) || g.codeowners.length === 0 ||
       !g.codeowners.every(string) || !unique(g.codeowners.map(v => v.toLowerCase())) ||
-      !Array.isArray(g.required_contexts) || g.required_contexts.length === 0 ||
+      !Array.isArray(g.required_contexts) || g.required_contexts.length !== 1 ||
       !g.required_contexts.every(string) || !unique(g.required_contexts))
     return 'GOVERNANCE_NOT_ASSERTED';
   if (!Array.isArray(m.reviews) || m.reviews.length === 0) return 'MISSING_REVIEWS';
@@ -134,6 +134,8 @@ function validateReceipt(m) {
         'run_id', 'run_attempt', 'job_id', 'runner_id', 'executed_steps',
         'toolchain_sha256', 'fixture_sha256', 'output_sha256']) ||
         !BACKENDS.includes(b.backend) || !REPO.test(b.repository) ||
+        // Receipt claims must bind the backend label to its canonical source repository.
+        b.repository !== `ores-truffle-oreslang/oreslang-source.${b.backend}` ||
         !sha1(b.head_sha) || !sha1(b.tree_sha) ||
         b.classification !== 'EXECUTED_COMPILER_GUEST' ||
         ![b.run_id,b.run_attempt,b.job_id,b.runner_id,b.executed_steps].every(pos) ||
