@@ -58,7 +58,10 @@ The signed payload has exactly the fields `schema`, `subject`, `governance`,
   artifact filename/basename, actual SHA-256 and positive byte length.
 - `governance`: **asserted** protected-main, no bypass, required code-owner
   approval, stale-review dismissal, PR author, code-owner identities, required
-  check contexts.
+  check contexts. This v1 envelope admits **exactly one required check context**,
+  because its `workflow` field carries only one job receipt. Claiming a second
+  required context without a separately verifiable receipt fails closed rather
+  than silently treating one successful workflow as proof for both.
 - `reviews`: ordered or unordered historical approvals/changes requested,
   dismissed or commented. The validator chooses the latest event for every
   case-insensitive reviewer identity. It rejects changed heads, unknown review
@@ -71,7 +74,9 @@ The signed payload has exactly the fields `schema`, `subject`, `governance`,
   candidate guest receipts, each with its **own** backend repo head, tree,
   run/attempt/job/runner/step identity and toolchain/fixture/output digests.
   `HOST_ONLY`, `NOT_EXECUTED`, `steps=[]`, mismatching fixture/output hashes,
-  or missing backend results cannot pass the schema.
+  or missing backend results cannot pass the schema. Each backend label must
+  identify its exact canonical `ores-truffle-oreslang/oreslang-source.<backend>`
+  repository; cross-backend or unrelated-source substitutions are rejected.
 
 Even a signed, schema-compliant source-free **synthetic fixture** can claim all
 five backends were executed. Thus a positive local result must **never** be
