@@ -1,0 +1,60 @@
+name: Source-free release assurance signature checks (NON-AUTHORIZING)
+
+on:
+  pull_request:
+    paths:
+      - 'tools/release-assurance-v1/**'
+      - 'tests/release-assurance-v1.test.mjs'
+      - '.github/workflows/release-assurance-v1.yml'
+      - 'docs/RELEASE_ASSURANCE_V1.md'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/release-assurance-v1/**'
+      - 'tests/release-assurance-v1.test.mjs'
+      - '.github/workflows/release-assurance-v1.yml'
+      - 'docs/RELEASE_ASSURANCE_V1.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-signature-and-artifact-negative-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout immutable source head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify original HEAD and raw physical source bytes
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test -z "$(git ls-files --others --ignored --exclude-standard)"
+          for path in tools/release-assurance-v1/verify.mjs tests/release-assurance-v1.test.mjs .github/workflows/release-assurance-v1.yml docs/RELEASE_ASSURANCE_V1.md; do
+            expected_blob="$(git rev-parse "HEAD:$path")"
+            test "$(git hash-object --no-filters "$path")" = "$expected_blob"
+            echo "SOURCE_BLOB $path $expected_blob"
+          done
+          echo "EXACT_SOURCE_HEAD=$EXPECTED_HEAD"
+          echo "EXACT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Install pinned Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Execute local DSSE and negative mutation checks (not release authorization)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          node --check tools/release-assurance-v1/verify.mjs
+          node --test tests/release-assurance-v1.test.mjs
+          echo 'SOURCE_FREE_SIGNATURE_TESTS_ONLY: no release, merge, authenticated GitHub or compiler-guest claim'

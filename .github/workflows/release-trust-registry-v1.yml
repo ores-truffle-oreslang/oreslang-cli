@@ -1,0 +1,50 @@
+name: Public root-signed release trust policy (NON-AUTHORIZING)
+on:
+  pull_request:
+    paths:
+      - 'tools/release-trust-registry-v1/**'
+      - 'tests/release-trust-registry-v1.test.mjs'
+      - '.github/workflows/release-trust-registry-v1.yml'
+      - 'docs/RELEASE_TRUST_REGISTRY_V1.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  root-signed-policy-negative-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout immutable PR source head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify original commit, tree and unmodified Git file bytes
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test -z "$(git ls-files --others --ignored --exclude-standard)"
+          for p in tools/release-trust-registry-v1/verify.mjs tests/release-trust-registry-v1.test.mjs .github/workflows/release-trust-registry-v1.yml docs/RELEASE_TRUST_REGISTRY_V1.md tools/release-assurance-v1/verify.mjs; do
+            sha="$(git rev-parse "HEAD:$p")"
+            test "$(git hash-object --no-filters "$p")" = "$sha"
+            echo "EXACT_SOURCE_BLOB $p $sha"
+          done
+          echo "EXACT_HEAD=$EXPECTED_HEAD"
+          echo "EXACT_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Install pinned Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Execute synthetic trust policy, revocation and nonauthorization tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          node --check tools/release-trust-registry-v1/verify.mjs
+          node --test tests/release-assurance-v1.test.mjs tests/release-trust-registry-v1.test.mjs
+          echo "SOURCE_FREE_LOCAL_POLICY_CANDIDATE_ONLY: no trusted time service, GitHub attestation, release or guest parity"
