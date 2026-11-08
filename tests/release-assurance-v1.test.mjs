@@ -208,3 +208,34 @@ test('standalone CLI exits 3 for local candidate, 1 on rejected claim, 2 for inv
   const missing=run([...args.slice(0,5),'--artifact','/no/such/file']);
   assert.equal(missing.status,2,missing.stderr);
 });
+
+
+test('missing or malformed top-level candidate input returns DENIED without throwing',()=>{
+  for(const input of [undefined,null,0,false,'payload',[],new Map(),{}]){
+    let result;
+    assert.doesNotThrow(()=>{result=verifySignedCandidate(input)});
+    assert.equal(result.classification,'DENIED');
+    assert.equal(result.release_authorized,false);
+    assert.equal(result.compiler_guest_parity_proven,false);
+  }
+});
+test('untrusted property getter messages cannot escape through candidate denial',()=>{
+  const marker='PRIVATE-NO-EXFIL-MARKER';
+  const input={get envelopeBytes(){throw Error(marker)}};
+  const result=verifySignedCandidate(input);
+  assert.equal(result.classification,'DENIED');
+  assert.equal(result.reason,'INVALID_INPUT_OR_CRYPTO');
+  assert.ok(!JSON.stringify(result).includes(marker));
+});
+test('malformed buffer fields never elevate to local candidate',()=>{
+  for(const input of [
+    {envelopeBytes:new Uint8Array(16),trustedKeyPem:spki,artifactBytes:bytes},
+    {envelopeBytes:Buffer.alloc(0),trustedKeyPem:spki,artifactBytes:bytes},
+    {envelopeBytes:Buffer.from('x'),trustedKeyPem:spki,artifactBytes:null},
+    {envelopeBytes:Buffer.from('x'),trustedKeyPem:spki,artifactBytes:Buffer.alloc(0)}
+  ]){
+    const result=verifySignedCandidate(input);
+    assert.equal(result.classification,'DENIED');
+    assert.equal(result.release_authorized,false);
+  }
+});
