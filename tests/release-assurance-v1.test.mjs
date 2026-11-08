@@ -355,3 +355,49 @@ test('five backend receipt repositories must match their named compiler backends
     assert.equal(result.compiler_guest_parity_proven, false);
   }
 });
+
+test('bounded release evidence rejects symlinked ancestor paths and lexical dot-dot segments', () => {
+  const parent = mkdtempSync(join(tmpdir(), 'atto-input-ancestor-'));
+  const privateDir = join(parent, 'private');
+  mkdirSync(privateDir);
+  const candidate = join(privateDir, 'release-evidence.json');
+  writeFileSync(candidate, bytes);
+  assert.deepEqual(readBoundedRegularFile(candidate, bytes.length), bytes);
+
+  const alias = join(parent, 'redirect');
+  symlinkSync(privateDir, alias, 'dir');
+  assert.throws(() => readBoundedRegularFile(join(alias, 'release-evidence.json'), bytes.length),
+    /symlinked or non-directory input parent/);
+  const aliasViaSecondLevel = join(parent, 'more-redirect');
+  symlinkSync(alias, aliasViaSecondLevel, 'dir');
+  assert.throws(() => readBoundedRegularFile(join(aliasViaSecondLevel, 'release-evidence.json'), bytes.length),
+    /symlinked or non-directory input parent/);
+
+  // Construct lexical traversal without join(), which would erase ../.
+  const traversal = privateDir + '/inner/../release-evidence.json';
+  assert.throws(() => readBoundedRegularFile(traversal, bytes.length),
+    /noncanonical input path parent/);
+  assert.deepEqual(readBoundedRegularFile(candidate, bytes.length), bytes);
+});
+
+test('CLI refuses cryptographic candidate through a symlinked parent even with valid key and artifact', () => {
+  const parent = mkdtempSync(join(tmpdir(), 'atto-assurance-redirect-'));
+  const real = join(parent, 'real');
+  mkdirSync(real);
+  const envelope = join(real, 'envelope.json');
+  const publicKey = join(real, 'trusted.pem');
+  const artifact = join(real, 'artifact.bin');
+  writeFileSync(envelope, signed());
+  writeFileSync(publicKey, spki);
+  writeFileSync(artifact, bytes);
+  const redirect = join(parent, 'redirect');
+  symlinkSync(real, redirect, 'dir');
+  const cli = resolve(import.meta.dirname, '../tools/release-assurance-v1/verify.mjs');
+  const result = spawnSync(process.execPath, [cli, '--envelope', join(redirect, 'envelope.json'),
+    '--trusted-key', publicKey, '--artifact', artifact], { encoding: 'utf8' });
+  assert.equal(result.status, 2, result.stderr);
+  const denial = JSON.parse(result.stderr.trim());
+  assert.equal(denial.classification, 'DENIED');
+  assert.equal(denial.release_authorized, false);
+  assert.equal(result.stdout, '');
+});
