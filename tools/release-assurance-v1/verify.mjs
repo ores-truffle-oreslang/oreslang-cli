@@ -186,7 +186,7 @@ export function verifySignedCandidate(input) {
       repository: manifest.subject.repository, head_sha: manifest.subject.head_sha,
       tree_sha: manifest.subject.tree_sha, artifact_sha256: manifest.subject.artifact.sha256,
       keyid, receipt_count: manifest.backends.length };
-  } catch (error) { return deny('INVALID_INPUT_OR_CRYPTO: ' + error.message); }
+  } catch { return deny('INVALID_INPUT_OR_CRYPTO'); }
 }
 
 // File descriptor is pinned before reading; block FIFOs, sockets, symlinks,
