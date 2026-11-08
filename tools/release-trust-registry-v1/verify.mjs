@@ -125,11 +125,12 @@ function validateExpected(expected) {
 
 // Always returns a NON-AUTHORIZING local candidate. now and expected MUST come
 // from a caller independently trusted by the release governance service.
-export function verifyPolicyBoundCandidate({
-  registryEnvelopeBytes, trustedRootPem, candidateEnvelopeBytes,
-  artifactBytes, expected, now
-}) {
+export function verifyPolicyBoundCandidate(input) {
   try {
+    if (!isObject(input))
+      return deny('INVALID_TRUST_POLICY_OR_INPUT: expected object input');
+    const { registryEnvelopeBytes, trustedRootPem, candidateEnvelopeBytes,
+      artifactBytes, expected, now } = input;
     if (!validateExpected(expected)) return deny('INVALID_EXTERNALLY_PINNED_EXPECTATIONS');
     if (strictTime(now) === null) return deny('INVALID_TRUSTED_CLOCK');
     if (!Buffer.isBuffer(candidateEnvelopeBytes) ||
