@@ -139,6 +139,10 @@ function validateReceipt(m) {
         ![b.run_id,b.run_attempt,b.job_id,b.runner_id,b.executed_steps].every(pos) ||
         !sha256(b.toolchain_sha256) || !sha256(b.fixture_sha256) ||
         !sha256(b.output_sha256)) return 'BACKEND_GUEST_RECEIPT_UNVERIFIED';
+    // Synthetic receipts still require backend-specific provenance labels.
+    // A signed assertion from another repository must not impersonate a backend.
+    if (b.repository !== `ores-truffle-oreslang/oreslang-source.${b.backend}`)
+      return 'BACKEND_REPOSITORY_MISMATCH';
     if (canonicalFixture === undefined) canonicalFixture = b.fixture_sha256;
     if (canonicalOutput === undefined) canonicalOutput = b.output_sha256;
     if (b.fixture_sha256 !== canonicalFixture || b.output_sha256 !== canonicalOutput)
