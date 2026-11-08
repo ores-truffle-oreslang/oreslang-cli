@@ -122,3 +122,29 @@ fn atto_test_forwards_fuzz_args_to_canonical_runner_and_preserves_exit_code() {
         "ARG:--fuzz\nARG:--cases\nARG:5\nARG:--seed\nARG:42\n"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn test_runner_killed_by_signal_is_inconclusive_not_a_finding() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile_dir("signal");
+    let script = dir.join("runner.sh");
+    fs::write(&script, "#!/bin/sh\nkill -KILL $$\n").expect("create fixture runner");
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).expect("chmod runner");
+    let output = Command::new(env!("CARGO_BIN_EXE_atto"))
+        .args(["test", "--fuzz"])
+        .env("ATTO_TEST_CLI", &script)
+        .output()
+        .expect("atto executable exists");
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+}
+
+#[cfg(unix)]
+fn tempfile_dir(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("atto-test-dispatch-{tag}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create fixture dir");
+    dir
+}

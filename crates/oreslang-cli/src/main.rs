@@ -586,7 +586,11 @@ fn test(args: TestArgs) -> ExitCode {
         match command.status() {
             Ok(status) if status.success() => return ExitCode::SUCCESS,
             Ok(status) => {
-                return ExitCode::from(status.code().unwrap_or(1).clamp(1, u8::MAX as i32) as u8);
+                // A runner killed by a signal (OOM killer, CI cancellation)
+                // produced no verdict. Exit 1 means "finding observed", so
+                // report it as inconclusive (2), matching atto-test's own
+                // exit conventions, rather than as a test failure.
+                return ExitCode::from(status.code().unwrap_or(2).clamp(1, u8::MAX as i32) as u8);
             }
             Err(error) if configured.is_none() && error.kind() == std::io::ErrorKind::NotFound => {
                 continue;
