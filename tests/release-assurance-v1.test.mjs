@@ -321,7 +321,7 @@ test('file admission enforces exact sizes and rejects unsafe bounds; CLI cannot 
     e => { e.signatures[0].sig = Buffer.alloc(63).toString('base64'); },
     e => { e.signatures[0].keyid = 'A'.repeat(64); },
     e => { e.signatures[0].unexpectedKey = spki; },
-    e => { e.payload = e.payload.replace(/=+$/, '') + '='; },
+    e => { e.payload += '='; },
   ]) {
     const altered = structuredClone(env);
     mutations(altered);
