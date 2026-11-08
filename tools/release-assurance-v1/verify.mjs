@@ -128,6 +128,8 @@ function validateReceipt(m) {
       !BACKENDS.every(name => m.backends.some(b => b?.backend === name)))
     return 'FIVE_BACKEND_RECEIPTS_MISSING';
   const tuples = [];
+  const runIds = [];
+  const jobIds = [];
   let canonicalFixture, canonicalOutput;
   for (const b of m.backends) {
     if (!eqKeys(b, ['backend', 'repository', 'head_sha', 'tree_sha', 'classification',
@@ -147,8 +149,14 @@ function validateReceipt(m) {
     if (b.fixture_sha256 !== canonicalFixture || b.output_sha256 !== canonicalOutput)
       return 'BACKEND_CANONICAL_OUTPUT_MISMATCH';
     tuples.push(`${b.repository}:${b.run_id}:${b.run_attempt}:${b.job_id}`);
+    // GitHub Actions run/job IDs identify concrete provider resources. A single
+    // run or job cannot simultaneously be a source-owned execution in two
+    // different canonical backend repositories.
+    runIds.push(b.run_id);
+    jobIds.push(b.job_id);
   }
-  if (!unique(tuples)) return 'DUPLICATE_BACKEND_JOB_RECEIPT';
+  if (!unique(tuples) || !unique(runIds) || !unique(jobIds))
+    return 'DUPLICATE_BACKEND_JOB_RECEIPT';
   return null;
 }
 
