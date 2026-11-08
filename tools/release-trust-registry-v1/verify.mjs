@@ -128,7 +128,7 @@ function validateExpected(expected) {
 export function verifyPolicyBoundCandidate(input) {
   try {
     if (!isObject(input))
-      return deny('INVALID_TRUST_POLICY_OR_INPUT: expected object input');
+      return deny('INVALID_TRUST_POLICY_OR_INPUT');
     const { registryEnvelopeBytes, trustedRootPem, candidateEnvelopeBytes,
       artifactBytes, expected, now } = input;
     if (!validateExpected(expected)) return deny('INVALID_EXTERNALLY_PINNED_EXPECTATIONS');
