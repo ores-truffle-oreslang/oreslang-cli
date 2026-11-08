@@ -125,11 +125,12 @@ function validateExpected(expected) {
 
 // Always returns a NON-AUTHORIZING local candidate. now and expected MUST come
 // from a caller independently trusted by the release governance service.
-export function verifyPolicyBoundCandidate({
-  registryEnvelopeBytes, trustedRootPem, candidateEnvelopeBytes,
-  artifactBytes, expected, now
-}) {
+export function verifyPolicyBoundCandidate(input) {
   try {
+    if (!isObject(input))
+      return deny('INVALID_TRUST_POLICY_OR_INPUT');
+    const { registryEnvelopeBytes, trustedRootPem, candidateEnvelopeBytes,
+      artifactBytes, expected, now } = input;
     if (!validateExpected(expected)) return deny('INVALID_EXTERNALLY_PINNED_EXPECTATIONS');
     if (strictTime(now) === null) return deny('INVALID_TRUSTED_CLOCK');
     if (!Buffer.isBuffer(candidateEnvelopeBytes) ||
@@ -174,7 +175,7 @@ export function verifyPolicyBoundCandidate({
       artifact_sha256: result.artifact_sha256,
       reason: 'Root signature, candidate signature, local artifact bytes and external pins match; live GitHub, key-clock integrity and guest execution NOT authenticated'
     };
-  } catch (e) { return deny('INVALID_TRUST_POLICY_OR_INPUT: ' + e.message); }
+  } catch { return deny('INVALID_TRUST_POLICY_OR_INPUT'); }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

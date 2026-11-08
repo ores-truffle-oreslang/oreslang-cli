@@ -150,8 +150,10 @@ function validateReceipt(m) {
 }
 
 // Successful result is ONLY a signed local candidate, never a verified release.
-export function verifySignedCandidate({ envelopeBytes, trustedKeyPem, artifactBytes }) {
+export function verifySignedCandidate(input) {
   try {
+    if (!isObj(input)) return deny('INVALID_BINARY_INPUT');
+    const { envelopeBytes, trustedKeyPem, artifactBytes } = input;
     if (!Buffer.isBuffer(envelopeBytes) || !Buffer.isBuffer(artifactBytes))
       return deny('INVALID_BINARY_INPUT');
     if (envelopeBytes.length < 1 || envelopeBytes.length > MAX_DOCUMENT)
@@ -184,7 +186,7 @@ export function verifySignedCandidate({ envelopeBytes, trustedKeyPem, artifactBy
       repository: manifest.subject.repository, head_sha: manifest.subject.head_sha,
       tree_sha: manifest.subject.tree_sha, artifact_sha256: manifest.subject.artifact.sha256,
       keyid, receipt_count: manifest.backends.length };
-  } catch (error) { return deny('INVALID_INPUT_OR_CRYPTO: ' + error.message); }
+  } catch { return deny('INVALID_INPUT_OR_CRYPTO'); }
 }
 
 // File descriptor is pinned before reading; block FIFOs, sockets, symlinks,
