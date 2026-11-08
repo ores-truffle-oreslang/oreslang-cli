@@ -208,3 +208,127 @@ test('standalone CLI exits 3 for local candidate, 1 on rejected claim, 2 for inv
   const missing=run([...args.slice(0,5),'--artifact','/no/such/file']);
   assert.equal(missing.status,2,missing.stderr);
 });
+
+test('review chronology fails closed on comments, dismissal, and stale approval; fresh approval restores only local candidate', () => {
+  const approval = { ...fixture().reviews[0] };
+  const decision = (state, when, overrides = {}) => ({
+    ...approval, state, submitted_at: when, ...overrides
+  });
+  const change = decision('CHANGES_REQUESTED', '2026-11-06T20:41:00Z');
+  const comment = decision('COMMENTED', '2026-11-06T20:42:00Z');
+  const reapprove = decision('APPROVED', '2026-11-06T20:43:00Z');
+  const ignored = fixture();
+  ignored.reviews = [approval, change, comment];
+  assert.equal(check(ignored).reason, 'OUTSTANDING_CHANGES_REQUESTED');
+
+  const recovered = fixture();
+  recovered.reviews = [approval, change, comment, reapprove];
+  const local = check(recovered);
+  assert.equal(local.classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  assert.equal(local.release_authorized, false);
+  assert.equal(local.compiler_guest_parity_proven, false);
+
+  const dismissed = fixture();
+  dismissed.reviews = [approval, decision('DISMISSED', '2026-11-06T20:41:00Z')];
+  assert.equal(check(dismissed).reason, 'INDEPENDENT_CURRENT_HEAD_CODEOWNER_APPROVAL_MISSING');
+
+  const stale = fixture();
+  stale.reviews = [decision('APPROVED', '2026-11-06T20:40:00Z',
+    { commit_id: '0'.repeat(40) })];
+  assert.equal(check(stale).reason, 'INDEPENDENT_CURRENT_HEAD_CODEOWNER_APPROVAL_MISSING');
+});
+
+test('duplicate and mixed-case reviewer identities cannot forge a second independent reviewer', () => {
+  const sameAuthor = fixture();
+  sameAuthor.reviews[0].reviewer = 'buildauthor';
+  assert.equal(check(sameAuthor).reason, 'INDEPENDENT_CURRENT_HEAD_CODEOWNER_APPROVAL_MISSING');
+
+  const sameTimestamp = fixture();
+  sameTimestamp.reviews.push({
+    ...sameTimestamp.reviews[0], reviewer: 'independentowner', state: 'COMMENTED'
+  });
+  assert.equal(check(sameTimestamp).reason, 'AMBIGUOUS_REVIEW_HISTORY');
+
+  const unrelated = fixture();
+  unrelated.reviews[0].reviewer = 'NotACodeowner';
+  assert.equal(check(unrelated).reason, 'INDEPENDENT_CURRENT_HEAD_CODEOWNER_APPROVAL_MISSING');
+});
+
+test('unexecuted, aliased, or fabricated workflow steps cannot promote synthetic evidence', () => {
+  const mutations = [
+    m => { m.workflow.steps[0].status = 'queued'; },
+    m => { m.workflow.steps[1].status = 'in_progress'; },
+    m => { m.workflow.steps[1].conclusion = null; },
+    m => { m.workflow.steps[0].name = 'Check out repository'; },
+    m => { m.workflow.steps[1].name = 'Skipped'; },
+    m => { m.workflow.checkout_step_number = 2; m.workflow.test_step_number = 2; },
+    m => { m.workflow.steps[0].number = 0; },
+    m => { m.workflow.steps[1].number = 1; },
+    m => { m.workflow.steps[1].extra = 'verified'; },
+    m => { m.workflow.run_id = Number.MAX_SAFE_INTEGER + 1; },
+    m => { m.workflow.job_name = 'unregistered-check'; },
+    m => { m.workflow.steps = [m.workflow.steps[0]]; },
+  ];
+  for (const [i, mutate] of mutations.entries()) {
+    const m = fixture(); mutate(m);
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', 'workflow mutation ' + i);
+    assert.equal(result.release_authorized, false);
+  }
+});
+
+test('backend job replay, classification downgrade, and incomplete receipts fail closed', () => {
+  const cases = [
+    m => {
+      Object.assign(m.backends[1], {
+        repository: m.backends[0].repository,
+        run_id: m.backends[0].run_id,
+        run_attempt: m.backends[0].run_attempt,
+        job_id: m.backends[0].job_id
+      });
+    },
+    m => { m.backends[0].classification = 'PARSER_ONLY'; },
+    m => { m.backends[0].classification = 'NOT_EXECUTED'; },
+    m => { m.backends[0].classification = 'NOT_CERTIFIED'; },
+    m => { m.backends[0].run_id = 0; },
+    m => { m.backends[0].executed_steps = null; },
+    m => { m.backends[0].fixture_sha256 = '0'.repeat(64); },
+    m => { m.backends[0].output_sha256 = '0'.repeat(64); },
+    m => { delete m.backends[0].toolchain_sha256; },
+    m => { m.backends[0].unknown_verified = true; },
+  ];
+  for (const [i, mutate] of cases.entries()) {
+    const m = fixture(); mutate(m);
+    assert.equal(check(m).classification, 'DENIED', 'backend mutation ' + i);
+  }
+});
+
+test('file admission enforces exact sizes and rejects unsafe bounds; CLI cannot treat malformed inputs as success', () => {
+  const d = mkdtempSync(join(tmpdir(), 'atto-assurance-edge-'));
+  const regular = join(d, 'regular');
+  writeFileSync(regular, bytes);
+  assert.deepEqual(readBoundedRegularFile(regular, bytes.length), bytes);
+  for (const bound of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, bytes.length - 1]) {
+    assert.throws(() => readBoundedRegularFile(regular, bound), 'bound ' + bound);
+  }
+  assert.throws(() => readBoundedRegularFile('', bytes.length));
+  assert.throws(() => readBoundedRegularFile(null, bytes.length));
+
+  const env = JSON.parse(signed().toString('utf8'));
+  for (const mutations of [
+    e => { e.signatures = []; },
+    e => { e.signatures.push(e.signatures[0]); },
+    e => { e.signatures[0].sig = Buffer.alloc(63).toString('base64'); },
+    e => { e.signatures[0].keyid = 'A'.repeat(64); },
+    e => { e.signatures[0].unexpectedKey = spki; },
+    e => { e.payload = e.payload.replace(/=+$/, '') + '='; },
+  ]) {
+    const altered = structuredClone(env);
+    mutations(altered);
+    const result = verifySignedCandidate({
+      envelopeBytes: Buffer.from(JSON.stringify(altered)), trustedKeyPem: spki, artifactBytes: bytes
+    });
+    assert.equal(result.classification, 'DENIED');
+    assert.equal(result.release_authorized, false);
+  }
+});
