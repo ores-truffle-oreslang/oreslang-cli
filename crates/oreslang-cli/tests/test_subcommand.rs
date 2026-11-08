@@ -50,8 +50,8 @@ fn test_subcommand_forwards_all_flags_and_propagates_runner_exit() {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
-    let script =
-        std::env::temp_dir().join(format!("oreslang-test-dispatch-{}.sh", std::process::id()));
+    let dir = tempfile_dir("legacy-forward");
+    let script = dir.join("runner.sh");
     fs::write(&script, "#!/bin/sh\nprintf 'ARG:%s\\n' \"$@\"\nexit 7\n")
         .expect("create fixture runner");
     let mut permissions = fs::metadata(&script).expect("fixture exists").permissions();
@@ -71,7 +71,7 @@ fn test_subcommand_forwards_all_flags_and_propagates_runner_exit() {
         .env("ORESLANG_TEST_CLI", &script)
         .output()
         .expect("oreslang executable exists");
-    let _ = fs::remove_file(&script);
+    fs::remove_dir_all(&dir).expect("remove private legacy fixture dir");
 
     assert_eq!(output.status.code(), Some(7));
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -98,12 +98,7 @@ fn canonical_atto_dispatch_fails_closed_when_explicit_runner_missing() {
 fn atto_test_forwards_fuzz_args_to_canonical_runner_and_preserves_exit_code() {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
-    let dir = std::env::temp_dir().join(format!(
-        "atto-test-dispatch-{}-{:?}",
-        std::process::id(),
-        std::thread::current().id()
-    ));
-    fs::create_dir_all(&dir).unwrap();
+    let dir = tempfile_dir("atto-forward");
     let runner = dir.join("test-runner");
     fs::write(&runner, "#!/bin/sh\nprintf 'ARG:%s\\n' \"$@\"\nexit 7\n").unwrap();
     let mut perms = fs::metadata(&runner).unwrap().permissions();
