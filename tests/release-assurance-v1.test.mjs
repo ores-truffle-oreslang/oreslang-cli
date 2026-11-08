@@ -208,3 +208,54 @@ test('standalone CLI exits 3 for local candidate, 1 on rejected claim, 2 for inv
   const missing=run([...args.slice(0,5),'--artifact','/no/such/file']);
   assert.equal(missing.status,2,missing.stderr);
 });
+
+
+test('one workflow receipt cannot prove multiple required CI contexts', () => {
+  const baseline=fixture();
+  assert.equal(check(baseline).classification,'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  const extras=['compiler-negative','toolchain-repro','release-signature','backend-conformance'];
+  for (const extra of extras) {
+    for (const contexts of [
+      ['release-assurance',extra],
+      [extra,'release-assurance'],
+      ['release-assurance',extra,'third-required-context']
+    ]) {
+      const m=fixture();
+      m.governance.required_contexts=contexts;
+      const result=check(m);
+      assert.equal(result.classification,'DENIED','unproven contexts '+contexts.join(','));
+      assert.equal(result.release_authorized,false);
+      assert.equal(result.compiler_guest_parity_proven,false);
+    }
+  }
+  const unrelated=fixture();
+  unrelated.governance.required_contexts=['compiler-negative'];
+  assert.equal(check(unrelated).classification,'DENIED');
+  const empty=fixture();
+  empty.governance.required_contexts=[];
+  assert.equal(check(empty).classification,'DENIED');
+});
+
+test('all five claimed guest backends bind exactly to their canonical source repositories', () => {
+  const names=['java','llvm','net','wasm','forge'];
+  assert.equal(check(fixture()).classification,'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  let checked=0;
+  for (let i=0; i<names.length; ++i) {
+    const other=names[(i+1)%names.length];
+    const replacements=[
+      'ores-truffle-oreslang/oreslang-source.'+other,
+      'ores-truffle-oreslang/oreslang-source.'+names[i]+'-fork',
+      'ores-truffle-oreslang/oreslang-source.'+names[i].toUpperCase(),
+      'ores-truffle-oreslang/unrelated'
+    ];
+    for (const repo of replacements) {
+      const signedReceipt=fixture();
+      signedReceipt.backends[i].repository=repo;
+      const result=check(signedReceipt);
+      assert.equal(result.classification,'DENIED',names[i]+' falsely sourced from '+repo);
+      assert.equal(result.release_authorized,false);
+      checked++;
+    }
+  }
+  assert.equal(checked,20);
+});
