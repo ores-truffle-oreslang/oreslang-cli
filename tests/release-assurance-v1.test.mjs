@@ -208,3 +208,46 @@ test('standalone CLI exits 3 for local candidate, 1 on rejected claim, 2 for inv
   const missing=run([...args.slice(0,5),'--artifact','/no/such/file']);
   assert.equal(missing.status,2,missing.stderr);
 });
+
+
+test('five synthetic backend receipts cannot impersonate another compiler repository', () => {
+  for (let index = 0; index < backendNames.length; ++index) {
+    const m = fixture();
+    const expected = backendNames[index];
+    const other = backendNames[(index + 1) % backendNames.length];
+    m.backends[index].repository = 'ores-truffle-oreslang/oreslang-source.' + other;
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', expected + ' relabeled as ' + other);
+    assert.equal(result.reason, 'BACKEND_GUEST_RECEIPT_UNVERIFIED');
+    assert.equal(result.release_authorized, false);
+    assert.equal(result.compiler_guest_parity_proven, false);
+  }
+});
+
+test('lookalike, forked and spelling-variant compiler repos never count as guests', () => {
+  for (const replacement of [
+    'ores-truffle-oreslang/oreslang-source.java-shadow',
+    'ores-truffle-oreslang/oreslang-source.java.backup',
+    'ores-truffle-oreslang/oreslang-source.Java',
+    'other-organization/oreslang-source.java',
+    'ores-truffle-oreslang/oreslang-source.fake',
+  ]) {
+    const m = fixture();
+    m.backends[0].repository = replacement;
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', replacement);
+    assert.equal(result.release_authorized, false);
+  }
+});
+
+test('canonical five-repo identity remains a non-authorizing synthetic candidate', () => {
+  const m = fixture();
+  for (const b of m.backends) {
+    assert.equal(b.repository, 'ores-truffle-oreslang/oreslang-source.' + b.backend);
+  }
+  const result = check(m);
+  assert.equal(result.classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  assert.equal(result.receipt_count, 5);
+  assert.equal(result.release_authorized, false);
+  assert.equal(result.compiler_guest_parity_proven, false);
+});
