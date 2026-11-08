@@ -143,8 +143,39 @@ fn test_runner_killed_by_signal_is_inconclusive_not_a_finding() {
 }
 
 #[cfg(unix)]
+#[test]
+fn test_runner_exit_1_is_a_finding_but_term_and_exit_2_are_inconclusive() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile_dir("exit-classes");
+    let script = dir.join("runner.sh");
+    for (source, expected) in [
+        ("#!/bin/sh\\nexit 1\\n", 1),
+        ("#!/bin/sh\\nexit 2\\n", 2),
+        ("#!/bin/sh\\nkill -TERM $\\n", 2),
+        ("#!/bin/sh\\nexit 7\\n", 7),
+    ] {
+        fs::write(&script, source).expect("write test runner");
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700))
+            .expect("chmod test runner");
+        let output = Command::new(env!("CARGO_BIN_EXE_atto"))
+            .args(["test", "--fuzz"])
+            .env("ATTO_TEST_CLI", &script)
+            .output()
+            .expect("atto executable exists");
+        assert_eq!(output.status.code(), Some(expected), "{output:?}");
+    }
+    fs::remove_dir_all(&dir).expect("clean isolated test fixtures");
+}
+
+#[cfg(unix)]
 fn tempfile_dir(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("atto-test-dispatch-{tag}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("create fixture dir");
+    // Never follow or reuse a predictable pre-existing path: the old
+    // create_dir_all accepted an attacker-created symlink under /tmp.
+    std::fs::create_dir(&dir).expect("exclusive fixture dir creation");
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+        .expect("keep runner fixture directory private");
     dir
 }
