@@ -44,7 +44,7 @@ test('repository matrix has exactly five distinct public projects including Webs
   assert.ok(REPOSITORIES.includes(WEBSITE_REPO));
   assert.equal(REPOSITORY_IDS[WEBSITE_REPO], 1409246164);
   assert.deepEqual(REQUIRED_JOBS[WEBSITE_REPO], ['AttoLang Site Validation']);
-  assert.equal(new Set(REPOSITORIES).size, 4);
+  assert.equal(new Set(REPOSITORIES).size, 5);
   assert.ok(REPOSITORIES.every(x => x.startsWith('ores-truffle-oreslang/')));
 });
 test('unknown repository, missing or forged phase is rejected', () => {
