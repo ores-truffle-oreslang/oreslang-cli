@@ -137,6 +137,19 @@ for (const repo of [CLI_REPO, WEBSITE_REPO]) {
     f.protection.required_pull_request_reviews.required_approving_review_count = 0;
     assert.ok(inspectReadback(repo, 'bootstrap', f).errors.includes('INDEPENDENT_APPROVAL_RULE_MISSING'));
   });
+  test(repo + ' bootstrap fails closed when CODEOWNERS is present or its absence is unverified', () => {
+    for (const presence of [true, null, undefined, 'false', 0]) {
+      const f = fixture(repo, 'bootstrap');
+      if (presence === undefined) delete f.codeowners_present_on_main;
+      else f.codeowners_present_on_main = presence;
+      const result = inspectReadback(repo, 'bootstrap', f);
+      assert.equal(result.evidence_model_consistent, false);
+      assert.ok(result.errors.includes('BOOTSTRAP_CODEOWNERS_ABSENCE_UNVERIFIED'), JSON.stringify(result));
+      assert.equal(result.merge_authorized, false);
+      assert.equal(result.release_authorized, false);
+      assert.equal(result.private_source_export_authorized, false);
+    }
+  });
   test(repo + ' steady state refuses absent CODEOWNERS or owner policy', () => {
     denies(repo, f => { f.codeowners_present_on_main = false; }, 'CODEOWNERS_NOT_VERIFIED_ON_MAIN');
     denies(repo, f => { f.protection.required_pull_request_reviews.require_code_owner_reviews = false; }, 'CODEOWNER_REVIEW_RULE_MISSING');

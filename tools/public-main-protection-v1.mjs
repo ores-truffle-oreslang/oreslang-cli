@@ -148,6 +148,12 @@ export function inspectReadback(repo, phase, observed) {
   if (review?.require_last_push_approval !== true) deny('LAST_PUSH_APPROVAL_MISSING');
   if (expected.required_pull_request_reviews.require_code_owner_reviews && review?.require_code_owner_reviews !== true) deny('CODEOWNER_REVIEW_RULE_MISSING');
   if (expected.required_pull_request_reviews.require_code_owner_reviews && observed.codeowners_present_on_main !== true) deny('CODEOWNERS_NOT_VERIFIED_ON_MAIN');
+  // Bootstrap disables mandatory owner review ONLY for verified absence of the
+  // policy file on main. Unknown or already installed CODEOWNERS must never
+  // qualify as a successful bootstrap snapshot (potential policy downgrade).
+  if (phase === 'bootstrap' && observed.codeowners_present_on_main !== false) {
+    deny('BOOTSTRAP_CODEOWNERS_ABSENCE_UNVERIFIED');
+  }
   if (!hasOnlyEmptyLists(review?.bypass_pull_request_allowances)) deny('PR_BYPASS_UNVERIFIED_OR_PRESENT');
   // No special reviewers may silently dismiss evidence while this policy is bootstrapped.
   // GitHub may omit the dismissal field; if present, inspect every member explicitly.
