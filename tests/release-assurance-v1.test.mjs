@@ -447,3 +447,22 @@ test('standalone CLI cannot import a signing private key as its trusted public a
   assert.equal(result.release_authorized, false);
   assert.match(result.reason, /trusted key must be a single public SPKI PEM block/);
 });
+
+
+test('one executed job cannot impersonate multiple required CI contexts', () => {
+  const m = fixture();
+  m.governance.required_contexts.push('unexecuted-second-required-check');
+  assert.equal(check(m).reason, 'REQUIRED_CONTEXT_EVIDENCE_INCOMPLETE');
+  const only = fixture();
+  assert.equal(check(only).classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+});
+
+test('the verified source checkout must precede source tests in executed job order', () => {
+  const before = fixture();
+  before.workflow.checkout_step_number = 2;
+  before.workflow.test_step_number = 1;
+  assert.equal(check(before).reason, 'REQUIRED_EXECUTED_STEP_MISSING');
+  const after = fixture();
+  after.workflow.steps = [after.workflow.steps[1], after.workflow.steps[0]];
+  assert.equal(check(after).classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+});

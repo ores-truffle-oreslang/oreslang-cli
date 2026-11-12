@@ -93,6 +93,11 @@ function validateReceipt(m) {
       !Array.isArray(g.required_contexts) || g.required_contexts.length === 0 ||
       !g.required_contexts.every(string) || !unique(g.required_contexts))
     return 'GOVERNANCE_NOT_ASSERTED';
+  // This v1 receipt authenticates the shape of exactly ONE workflow job.
+  // A list of additional required checks would otherwise be claimed without
+  // any matching executed per-context job evidence.
+  if (g.required_contexts.length !== 1)
+    return 'REQUIRED_CONTEXT_EVIDENCE_INCOMPLETE';
   if (!Array.isArray(m.reviews) || m.reviews.length === 0) return 'MISSING_REVIEWS';
   const byUser = new Map();
   const seenReviewTimes = new Set();
@@ -131,7 +136,7 @@ function validateReceipt(m) {
       step.conclusion === 'success') ||
       !w.steps.some(step => step.number === w.checkout_step_number && step.name === 'Verify immutable source') ||
       !w.steps.some(step => step.number === w.test_step_number && step.name === 'Execute source tests') ||
-      w.checkout_step_number === w.test_step_number)
+      w.checkout_step_number >= w.test_step_number)
     return 'REQUIRED_EXECUTED_STEP_MISSING';
   if (!Array.isArray(m.backends) || m.backends.length !== BACKENDS.length ||
       !unique(m.backends.map(b => b?.backend)) ||
