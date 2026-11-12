@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import {
-  REPOSITORIES, CLI_REPO, REQUIRED_JOBS, REPOSITORY_IDS, GITHUB_ACTIONS_APP_ID,
+  REPOSITORIES, CLI_REPO, WEBSITE_REPO, REQUIRED_JOBS, REPOSITORY_IDS, GITHUB_ACTIONS_APP_ID,
   protectionPayload, inspectReadback
 } from '../tools/public-main-protection-v1.mjs';
 
@@ -17,7 +17,7 @@ function fixture(repo, phase = 'steady') {
     repository: { full_name: repo, id: REPOSITORY_IDS[repo] },
     branch: { name: 'main', protected: true, commit: { sha: SHA } },
     after_main_sha: SHA,
-    codeowners_present_on_main: repo !== CLI_REPO || phase === 'steady',
+    codeowners_present_on_main: phase === 'steady' || (repo !== CLI_REPO && repo !== WEBSITE_REPO),
     rulesets: [],
     protection: {
       required_status_checks: structuredClone(policy.required_status_checks),
@@ -39,8 +39,11 @@ function denies(repo, mutate, reason, phase = 'steady') {
   assert.equal(x.private_source_export_authorized, false);
   assert.ok(x.errors.some(e => e.startsWith(reason)), JSON.stringify(x.errors));
 }
-test('repository matrix has exactly four distinct public projects', () => {
-  assert.equal(REPOSITORIES.length, 4);
+test('repository matrix has exactly five distinct public projects including Website', () => {
+  assert.equal(REPOSITORIES.length, 5);
+  assert.ok(REPOSITORIES.includes(WEBSITE_REPO));
+  assert.equal(REPOSITORY_IDS[WEBSITE_REPO], 1409246164);
+  assert.deepEqual(REQUIRED_JOBS[WEBSITE_REPO], ['AttoLang Site Validation']);
   assert.equal(new Set(REPOSITORIES).size, 4);
   assert.ok(REPOSITORIES.every(x => x.startsWith('ores-truffle-oreslang/')));
 });
@@ -48,12 +51,12 @@ test('unknown repository, missing or forged phase is rejected', () => {
   assert.throws(() => protectionPayload('other/private', 'steady'), /UNKNOWN_REPOSITORY/);
   assert.throws(() => protectionPayload(CLI_REPO, 'production'), /UNKNOWN_PHASE/);
   assert.throws(() => inspectReadback('other/private', 'steady', {}), /UNKNOWN_REPOSITORY/);
-  for (const repo of REPOSITORIES) if (repo !== CLI_REPO) {
-    assert.throws(() => protectionPayload(repo, 'bootstrap'), /BOOTSTRAP_CLI_ONLY/);
+  for (const repo of REPOSITORIES) if (repo !== CLI_REPO && repo !== WEBSITE_REPO) {
+    assert.throws(() => protectionPayload(repo, 'bootstrap'), /BOOTSTRAP_ONLY_FOR_MISSING_CODEOWNERS/);
   }
 });
 for (const repo of REPOSITORIES) {
-  for (const phase of (repo === CLI_REPO ? ['bootstrap', 'steady'] : ['steady'])) {
+  for (const phase of ((repo === CLI_REPO || repo === WEBSITE_REPO) ? ['bootstrap', 'steady'] : ['steady'])) {
     test('admin payload: ' + repo + ' ' + phase, () => {
       const p = protectionPayload(repo, phase);
       assert.equal(p.enforce_admins, true);
@@ -64,7 +67,7 @@ for (const repo of REPOSITORIES) {
       assert.equal(p.required_pull_request_reviews.required_approving_review_count, 1);
       assert.equal(p.required_pull_request_reviews.dismiss_stale_reviews, true);
       assert.equal(p.required_pull_request_reviews.require_last_push_approval, true);
-      assert.equal(p.required_pull_request_reviews.require_code_owner_reviews, repo !== CLI_REPO || phase === 'steady');
+      assert.equal(p.required_pull_request_reviews.require_code_owner_reviews, phase === 'steady' || (repo !== CLI_REPO && repo !== WEBSITE_REPO));
       assert.deepEqual(p.required_pull_request_reviews.bypass_pull_request_allowances, { users: [], teams: [], apps: [] });
       assert.equal(p.allow_deletions, false);
       assert.equal(p.allow_force_pushes, false);
@@ -125,13 +128,20 @@ for (const repo of REPOSITORIES) {
     test('fail closed: ' + repo + ' ' + reason + ' #' + cases.findIndex(x => x[1] === mutation), () => denies(repo, mutation, reason));
   }
 }
-test('CLI bootstrap requires independent PR approval but cannot require absent CODEOWNERS', () => {
-  const f = fixture(CLI_REPO, 'bootstrap');
-  assert.equal(f.codeowners_present_on_main, false);
-  assert.equal(inspectReadback(CLI_REPO, 'bootstrap', f).evidence_model_consistent, true);
-  f.protection.required_pull_request_reviews.required_approving_review_count = 0;
-  assert.ok(inspectReadback(CLI_REPO, 'bootstrap', f).errors.includes('INDEPENDENT_APPROVAL_RULE_MISSING'));
-});
+for (const repo of [CLI_REPO, WEBSITE_REPO]) {
+  test(repo + ' bootstrap requires independent PR approval but cannot require absent CODEOWNERS', () => {
+    const f = fixture(repo, 'bootstrap');
+    assert.equal(f.codeowners_present_on_main, false);
+    assert.equal(f.protection.required_pull_request_reviews.require_code_owner_reviews, false);
+    assert.equal(inspectReadback(repo, 'bootstrap', f).evidence_model_consistent, true);
+    f.protection.required_pull_request_reviews.required_approving_review_count = 0;
+    assert.ok(inspectReadback(repo, 'bootstrap', f).errors.includes('INDEPENDENT_APPROVAL_RULE_MISSING'));
+  });
+  test(repo + ' steady state refuses absent CODEOWNERS or owner policy', () => {
+    denies(repo, f => { f.codeowners_present_on_main = false; }, 'CODEOWNERS_NOT_VERIFIED_ON_MAIN');
+    denies(repo, f => { f.protection.required_pull_request_reviews.require_code_owner_reviews = false; }, 'CODEOWNER_REVIEW_RULE_MISSING');
+  });
+}
 test('CLI steady state refuses absent codeowner or owner policy', () => {
   denies(CLI_REPO, f => { f.codeowners_present_on_main = false; }, 'CODEOWNERS_NOT_VERIFIED_ON_MAIN');
   denies(CLI_REPO, f => { f.protection.required_pull_request_reviews.require_code_owner_reviews = false; }, 'CODEOWNER_REVIEW_RULE_MISSING');
@@ -180,13 +190,17 @@ function execAudit(path) {
     encoding: 'utf8', timeout: 5000, maxBuffer: 512 * 1024
   });
 }
-test('CLI --plan emits exact action-free JSON; bootstrap is CLI-only', () => {
+test('CLI --plan emits exact action-free JSON; bootstrap is CLI/Website only', () => {
   const x = spawnSync(process.execPath, [cli, '--plan', CLI_REPO, 'bootstrap'], {encoding:'utf8', timeout: 5000});
   assert.equal(x.status, 0, x.stderr);
   assert.deepEqual(JSON.parse(x.stdout), protectionPayload(CLI_REPO, 'bootstrap'));
-  const denied = spawnSync(process.execPath, [cli, '--plan', REPOSITORIES[1], 'bootstrap'], {encoding:'utf8',timeout:5000});
+  const website = spawnSync(process.execPath, [cli, '--plan', WEBSITE_REPO, 'bootstrap'], {encoding:'utf8',timeout:5000});
+  assert.equal(website.status, 0, website.stderr);
+  assert.deepEqual(JSON.parse(website.stdout), protectionPayload(WEBSITE_REPO, 'bootstrap'));
+  const deniedRepo = REPOSITORIES.find(r => r !== CLI_REPO && r !== WEBSITE_REPO);
+  const denied = spawnSync(process.execPath, [cli, '--plan', deniedRepo, 'bootstrap'], {encoding:'utf8',timeout:5000});
   assert.equal(denied.status, 2);
-  assert.match(denied.stderr, /BOOTSTRAP_CLI_ONLY/);
+  assert.match(denied.stderr, /BOOTSTRAP_ONLY_FOR_MISSING_CODEOWNERS/);
 });
 test('CLI --audit gives exit 3 and explicit deny even when snapshot is consistent', t => {
   const dir = mkdtempSync(join(tmpdir(), 'atto-admin-model-'));

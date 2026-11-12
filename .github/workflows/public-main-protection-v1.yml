@@ -38,9 +38,12 @@ jobs:
           echo "EXACT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
       - name: Adversarial public administrator-policy model tests
         run: node --test tests/public-main-protection-v1.test.mjs
-      - name: Validate four deterministic protection payloads without applying them
+      - name: Validate five deterministic protection payloads without applying them
         run: |
           set -euo pipefail
-          for repo in oreslang-cli html-js-css-syntax-highlighter sublime-text-plugins vscode-plugins; do
+          for repo in oreslang-cli ores-truffle-oreslang.github.io html-js-css-syntax-highlighter sublime-text-plugins vscode-plugins; do
             node tools/public-main-protection-v1.mjs --plan "ores-truffle-oreslang/$repo" steady >/dev/null
+          done
+          for repo in oreslang-cli ores-truffle-oreslang.github.io; do
+            node tools/public-main-protection-v1.mjs --plan "ores-truffle-oreslang/$repo" bootstrap >/dev/null
           done

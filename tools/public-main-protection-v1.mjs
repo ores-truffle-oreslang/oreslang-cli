@@ -6,8 +6,10 @@ import { pathToFileURL } from 'node:url';
 
 export const GITHUB_ACTIONS_APP_ID = 15368;
 export const CLI_REPO = 'ores-truffle-oreslang/oreslang-cli';
+export const WEBSITE_REPO = 'ores-truffle-oreslang/ores-truffle-oreslang.github.io';
 export const REQUIRED_JOBS = Object.freeze({
   [CLI_REPO]: Object.freeze(['rust']),
+  [WEBSITE_REPO]: Object.freeze(['AttoLang Site Validation']),
   'ores-truffle-oreslang/html-js-css-syntax-highlighter': Object.freeze(['test', 'browser-dom', 'release-package']),
   'ores-truffle-oreslang/sublime-text-plugins': Object.freeze(['package', 'sublime-syntax-engine', 'release-package']),
   'ores-truffle-oreslang/vscode-plugins': Object.freeze([
@@ -19,6 +21,7 @@ export const REQUIRED_JOBS = Object.freeze({
 // Numeric IDs checked against authenticated repository GETs; never infer them from names alone.
 export const REPOSITORY_IDS = Object.freeze({
   [CLI_REPO]: 1402495995,
+  [WEBSITE_REPO]: 1409246164,
   'ores-truffle-oreslang/html-js-css-syntax-highlighter': 1409308342,
   'ores-truffle-oreslang/sublime-text-plugins': 1402482919,
   'ores-truffle-oreslang/vscode-plugins': 1402488145
@@ -55,8 +58,12 @@ function readBoundedSnapshot(path) {
 export function protectionPayload(repo, phase = 'steady') {
   if (!Object.hasOwn(REQUIRED_JOBS, repo)) throw new Error('UNKNOWN_REPOSITORY');
   if (phase !== 'bootstrap' && phase !== 'steady') throw new Error('UNKNOWN_PHASE');
-  if (phase === 'bootstrap' && repo !== CLI_REPO) throw new Error('BOOTSTRAP_CLI_ONLY');
-  const requireOwners = repo !== CLI_REPO || phase === 'steady';
+  // CLI and Website do not yet have verified CODEOWNERS on main. Bootstrap
+  // still requires independently approved PRs; steady adds CODEOWNER review.
+  if (phase === 'bootstrap' && repo !== CLI_REPO && repo !== WEBSITE_REPO) {
+    throw new Error('BOOTSTRAP_ONLY_FOR_MISSING_CODEOWNERS');
+  }
+  const requireOwners = phase === 'steady' || (repo !== CLI_REPO && repo !== WEBSITE_REPO);
   return {
     required_status_checks: {
       strict: true,
