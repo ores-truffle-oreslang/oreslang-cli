@@ -23,7 +23,11 @@ node tools/release-assurance-v1/verify.mjs \
 ```
 
 The caller must obtain and pin the trusted public key **out of band**. A
-public key embedded in the envelope does not establish trust. Never use a
+public key embedded in the envelope does not establish trust. The trust file
+must contain **exactly one Ed25519 SPKI `-----BEGIN PUBLIC KEY-----` PEM
+block**. Private-key PEM blocks (including PKCS#8), concatenated PEM blocks,
+extra text, and noncanonical PEM wrappers are rejected; the verifier never
+accepts a signing private key as a trust-anchor input. Never use a
 self-generated test key as a production trust anchor. Signing/release
 operations are deliberately absent from this verifier.
 
@@ -70,6 +74,9 @@ The signed payload has exactly the fields `schema`, `subject`, `governance`,
 - `backends`: exactly five unique `java`, `llvm`, `net`, `wasm`, `forge`
   candidate guest receipts, each with its **own** backend repo head, tree,
   run/attempt/job/runner/step identity and toolchain/fixture/output digests.
+  Each named backend must identify its canonical
+  `ores-truffle-oreslang/oreslang-source.<backend>` repository; a copied job
+  from another repository is denied even when the signed shape is otherwise valid.
   `HOST_ONLY`, `NOT_EXECUTED`, `steps=[]`, mismatching fixture/output hashes,
   or missing backend results cannot pass the schema.
 
@@ -84,8 +91,12 @@ independent authenticated source-side execution and matching blobs.
   Ed25519 pairs only in process for synthetic local fixtures.
 - Input paths use descriptor-pinned `O_NOFOLLOW` and `O_NONBLOCK`; deny symlink,
   multi-linked, nonregular, empty, and oversized files, and inode/size/mtime/
-  ctime changes during read. Envelope max 256 KiB, public key max 16 KiB,
-  release artifact max 64 MiB.
+  ctime changes during read. Stable symlinked ancestor directories and lexical
+  `..` path segments are denied; the leaf pathname and ancestors are checked
+  again after reading. These pathname checks are **not** race-free against a
+  hostile same-UID process able to replace directories between checks; use
+  private, trusted input directories when preparing candidate evidence.
+  Envelope max 256 KiB, public key max 16 KiB, release artifact max 64 MiB.
 - Real Node 22 tests cover 40 individual mutation cases, 1,024 compound
   boolean-security combinations, key substitution, artifact tampering,
   malformed canonical JSON/UTF-8/base64, unsafe paths, and the CLI nonzero

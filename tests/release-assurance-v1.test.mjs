@@ -208,3 +208,242 @@ test('standalone CLI exits 3 for local candidate, 1 on rejected claim, 2 for inv
   const missing=run([...args.slice(0,5),'--artifact','/no/such/file']);
   assert.equal(missing.status,2,missing.stderr);
 });
+
+test('review chronology fails closed on comments, dismissal, and stale approval; fresh approval restores only local candidate', () => {
+  const approval = { ...fixture().reviews[0] };
+  const decision = (state, when, overrides = {}) => ({
+    ...approval, state, submitted_at: when, ...overrides
+  });
+  const change = decision('CHANGES_REQUESTED', '2026-11-06T20:41:00Z');
+  const comment = decision('COMMENTED', '2026-11-06T20:42:00Z');
+  const reapprove = decision('APPROVED', '2026-11-06T20:43:00Z');
+  const ignored = fixture();
+  ignored.reviews = [approval, change, comment];
+  assert.equal(check(ignored).reason, 'OUTSTANDING_CHANGES_REQUESTED');
+
+  const recovered = fixture();
+  recovered.reviews = [approval, change, comment, reapprove];
+  const local = check(recovered);
+  assert.equal(local.classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  assert.equal(local.release_authorized, false);
+  assert.equal(local.compiler_guest_parity_proven, false);
+
+  const dismissed = fixture();
+  dismissed.reviews = [approval, decision('DISMISSED', '2026-11-06T20:41:00Z')];
+  assert.equal(check(dismissed).reason, 'INDEPENDENT_CURRENT_HEAD_CODEOWNER_APPROVAL_MISSING');
+
+  const stale = fixture();
+  stale.reviews = [decision('APPROVED', '2026-11-06T20:40:00Z',
+    { commit_id: '0'.repeat(40) })];
+  assert.equal(check(stale).reason, 'INDEPENDENT_CURRENT_HEAD_CODEOWNER_APPROVAL_MISSING');
+});
+
+test('duplicate and mixed-case reviewer identities cannot forge a second independent reviewer', () => {
+  const sameAuthor = fixture();
+  sameAuthor.reviews[0].reviewer = 'buildauthor';
+  assert.equal(check(sameAuthor).reason, 'INDEPENDENT_CURRENT_HEAD_CODEOWNER_APPROVAL_MISSING');
+
+  const sameTimestamp = fixture();
+  sameTimestamp.reviews.push({
+    ...sameTimestamp.reviews[0], reviewer: 'independentowner', state: 'COMMENTED'
+  });
+  assert.equal(check(sameTimestamp).reason, 'AMBIGUOUS_REVIEW_HISTORY');
+
+  const unrelated = fixture();
+  unrelated.reviews[0].reviewer = 'NotACodeowner';
+  assert.equal(check(unrelated).reason, 'INDEPENDENT_CURRENT_HEAD_CODEOWNER_APPROVAL_MISSING');
+});
+
+test('unexecuted, aliased, or fabricated workflow steps cannot promote synthetic evidence', () => {
+  const mutations = [
+    m => { m.workflow.steps[0].status = 'queued'; },
+    m => { m.workflow.steps[1].status = 'in_progress'; },
+    m => { m.workflow.steps[1].conclusion = null; },
+    m => { m.workflow.steps[0].name = 'Check out repository'; },
+    m => { m.workflow.steps[1].name = 'Skipped'; },
+    m => { m.workflow.checkout_step_number = 2; m.workflow.test_step_number = 2; },
+    m => { m.workflow.steps[0].number = 0; },
+    m => { m.workflow.steps[1].number = 1; },
+    m => { m.workflow.steps[1].extra = 'verified'; },
+    m => { m.workflow.run_id = Number.MAX_SAFE_INTEGER + 1; },
+    m => { m.workflow.job_name = 'unregistered-check'; },
+    m => { m.workflow.steps = [m.workflow.steps[0]]; },
+  ];
+  for (const [i, mutate] of mutations.entries()) {
+    const m = fixture(); mutate(m);
+    const result = check(m);
+    assert.equal(result.classification, 'DENIED', 'workflow mutation ' + i);
+    assert.equal(result.release_authorized, false);
+  }
+});
+
+test('backend job replay, classification downgrade, and incomplete receipts fail closed', () => {
+  const cases = [
+    m => {
+      Object.assign(m.backends[1], {
+        repository: m.backends[0].repository,
+        run_id: m.backends[0].run_id,
+        run_attempt: m.backends[0].run_attempt,
+        job_id: m.backends[0].job_id
+      });
+    },
+    m => { m.backends[0].classification = 'PARSER_ONLY'; },
+    m => { m.backends[0].classification = 'NOT_EXECUTED'; },
+    m => { m.backends[0].classification = 'NOT_CERTIFIED'; },
+    m => { m.backends[0].run_id = 0; },
+    m => { m.backends[0].executed_steps = null; },
+    m => { m.backends[0].fixture_sha256 = '0'.repeat(64); },
+    m => { m.backends[0].output_sha256 = '0'.repeat(64); },
+    m => { delete m.backends[0].toolchain_sha256; },
+    m => { m.backends[0].unknown_verified = true; },
+  ];
+  for (const [i, mutate] of cases.entries()) {
+    const m = fixture(); mutate(m);
+    assert.equal(check(m).classification, 'DENIED', 'backend mutation ' + i);
+  }
+});
+
+test('file admission enforces exact sizes and rejects unsafe bounds; CLI cannot treat malformed inputs as success', () => {
+  const d = mkdtempSync(join(tmpdir(), 'atto-assurance-edge-'));
+  const regular = join(d, 'regular');
+  writeFileSync(regular, bytes);
+  assert.deepEqual(readBoundedRegularFile(regular, bytes.length), bytes);
+  for (const bound of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, bytes.length - 1]) {
+    assert.throws(() => readBoundedRegularFile(regular, bound), 'bound ' + bound);
+  }
+  assert.throws(() => readBoundedRegularFile('', bytes.length));
+  assert.throws(() => readBoundedRegularFile(null, bytes.length));
+
+  const env = JSON.parse(signed().toString('utf8'));
+  for (const mutations of [
+    e => { e.signatures = []; },
+    e => { e.signatures.push(e.signatures[0]); },
+    e => { e.signatures[0].sig = Buffer.alloc(63).toString('base64'); },
+    e => { e.signatures[0].keyid = 'A'.repeat(64); },
+    e => { e.signatures[0].unexpectedKey = spki; },
+    e => { e.payload += '='; },
+  ]) {
+    const altered = structuredClone(env);
+    mutations(altered);
+    const result = verifySignedCandidate({
+      envelopeBytes: Buffer.from(JSON.stringify(altered)), trustedKeyPem: spki, artifactBytes: bytes
+    });
+    assert.equal(result.classification, 'DENIED');
+    assert.equal(result.release_authorized, false);
+  }
+});
+
+
+test('five backend receipt repositories must match their named compiler backends, not just a GitHub-shaped slug', () => {
+  assert.equal(check().classification, 'LOCAL_CRYPTOGRAPHIC_CANDIDATE');
+  const substitutions = [
+    { backend: 'java', repository: 'ores-truffle-oreslang/oreslang-source.llvm' },
+    { backend: 'net', repository: 'ores-truffle-oreslang/oreslang-source.net-fake' },
+    { backend: 'wasm', repository: 'ores-truffle-oreslang/oreslang-cli' },
+    { backend: 'forge', repository: 'ores-truffle-oreslang/oreslang-source.java' }
+  ];
+  for (const [i, substitution] of substitutions.entries()) {
+    const manifest = fixture();
+    const entry = manifest.backends.find(item => item.backend === substitution.backend);
+    entry.repository = substitution.repository;
+    // Preserve all signature, digest, distinct-job and five-backend-shape fields:
+    // ONLY the source attribution is invalid.
+    const result = check(manifest);
+    assert.equal(result.classification, 'DENIED', 'repository substitution ' + i);
+    assert.equal(result.reason, 'BACKEND_REPOSITORY_MISMATCH', 'reason ' + i);
+    assert.equal(result.release_authorized, false);
+    assert.equal(result.compiler_guest_parity_proven, false);
+  }
+});
+
+test('bounded release evidence rejects symlinked ancestor paths and lexical dot-dot segments', () => {
+  const parent = mkdtempSync(join(tmpdir(), 'atto-input-ancestor-'));
+  const privateDir = join(parent, 'private');
+  mkdirSync(privateDir);
+  const candidate = join(privateDir, 'release-evidence.json');
+  writeFileSync(candidate, bytes);
+  assert.deepEqual(readBoundedRegularFile(candidate, bytes.length), bytes);
+
+  const alias = join(parent, 'redirect');
+  symlinkSync(privateDir, alias, 'dir');
+  assert.throws(() => readBoundedRegularFile(join(alias, 'release-evidence.json'), bytes.length),
+    /symlinked or non-directory input parent/);
+  const aliasViaSecondLevel = join(parent, 'more-redirect');
+  symlinkSync(alias, aliasViaSecondLevel, 'dir');
+  assert.throws(() => readBoundedRegularFile(join(aliasViaSecondLevel, 'release-evidence.json'), bytes.length),
+    /symlinked or non-directory input parent/);
+
+  // Construct lexical traversal without join(), which would erase ../.
+  const traversal = privateDir + '/inner/../release-evidence.json';
+  assert.throws(() => readBoundedRegularFile(traversal, bytes.length),
+    /noncanonical input path parent/);
+  assert.deepEqual(readBoundedRegularFile(candidate, bytes.length), bytes);
+});
+
+test('CLI refuses cryptographic candidate through a symlinked parent even with valid key and artifact', () => {
+  const parent = mkdtempSync(join(tmpdir(), 'atto-assurance-redirect-'));
+  const real = join(parent, 'real');
+  mkdirSync(real);
+  const envelope = join(real, 'envelope.json');
+  const publicKey = join(real, 'trusted.pem');
+  const artifact = join(real, 'artifact.bin');
+  writeFileSync(envelope, signed());
+  writeFileSync(publicKey, spki);
+  writeFileSync(artifact, bytes);
+  const redirect = join(parent, 'redirect');
+  symlinkSync(real, redirect, 'dir');
+  const cli = resolve(import.meta.dirname, '../tools/release-assurance-v1/verify.mjs');
+  const result = spawnSync(process.execPath, [cli, '--envelope', join(redirect, 'envelope.json'),
+    '--trusted-key', publicKey, '--artifact', artifact], { encoding: 'utf8' });
+  assert.equal(result.status, 2, result.stderr);
+  const denial = JSON.parse(result.stderr.trim());
+  assert.equal(denial.classification, 'DENIED');
+  assert.equal(denial.release_authorized, false);
+  assert.equal(result.stdout, '');
+});
+
+
+test('trust-anchor admission rejects private signing secrets and multiple PEM blocks', () => {
+  const privatePem = pair.privateKey.export({ type: 'pkcs8', format: 'pem' });
+  const alternate = generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' });
+  const malformedKeys = [
+    privatePem,
+    Buffer.from(privatePem),
+    spki + privatePem,
+    privatePem + spki,
+    spki + alternate,
+    spki + '\nINJECTED DATA\n',
+    'UNTRUSTED PREFIX\n' + spki,
+    spki.replace('BEGIN PUBLIC KEY', 'BEGIN PRIVATE KEY'),
+    Buffer.from([0xff, 0xfe, 0xfd]),
+  ];
+  for (const [index, invalid] of malformedKeys.entries()) {
+    assert.throws(() => trustKeyId(invalid), 'invalid trust anchor ' + index);
+    const result = check(fixture(), { trustedKeyPem: invalid });
+    assert.equal(result.classification, 'DENIED', 'candidate ' + index);
+    assert.equal(result.release_authorized, false);
+  }
+  // A public PEM input with conventional CRLF line endings is still a
+  // single public trust anchor; never derive trust from the signed payload.
+  const crlf = spki.replace(/\n/g, '\r\n');
+  assert.equal(trustKeyId(Buffer.from(spki)).keyid, keyid);
+  assert.equal(trustKeyId(crlf).keyid, keyid);
+});
+
+test('standalone CLI cannot import a signing private key as its trusted public anchor', () => {
+  const d = mkdtempSync(join(tmpdir(), 'atto-assurance-private-trust-'));
+  const envPath = join(d, 'envelope.json');
+  const keyPath = join(d, 'secret.pkcs8.pem');
+  const artifactPath = join(d, 'artifact.bin');
+  writeFileSync(envPath, signed());
+  writeFileSync(keyPath, pair.privateKey.export({ type: 'pkcs8', format: 'pem' }));
+  writeFileSync(artifactPath, bytes);
+  const cli = resolve(import.meta.dirname, '../tools/release-assurance-v1/verify.mjs');
+  const run = spawnSync(process.execPath, [cli, '--envelope', envPath,
+    '--trusted-key', keyPath, '--artifact', artifactPath], { encoding: 'utf8' });
+  assert.equal(run.status, 1, run.stderr);
+  const result = JSON.parse(run.stdout);
+  assert.equal(result.classification, 'DENIED');
+  assert.equal(result.release_authorized, false);
+  assert.match(result.reason, /trusted key must be a single public SPKI PEM block/);
+});

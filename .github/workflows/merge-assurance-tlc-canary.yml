@@ -1,0 +1,79 @@
+name: Source-free TLC merge assurance canary
+on:
+  pull_request:
+    paths:
+      - 'specs/merge-assurance-public-canary-v1*'
+      - 'specs/MergeAssurancePublicCanaryV1.tla'
+      - '.github/workflows/merge-assurance-tlc-canary.yml'
+      - 'docs/MERGE_ASSURANCE_PUBLIC_TLC_CANARY_V1.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-tlc-merge-model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout immutable original PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify original source head before fetching TLC
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "SOURCE_HEAD=$EXPECTED_HEAD"
+          echo "SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+          sha256sum specs/MergeAssurancePublicCanaryV1.tla specs/merge-assurance-public-canary-v1*.cfg
+      - name: Download and SHA256-verify immutable TLC distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tlc-logs
+          curl --fail --location --silent --show-error --retry 3 \
+            'https://github.com/zactionsz/tla-tools/releases/download/tla2tools-2026.08.11.125311/tla2tools.jar' \
+            --output /tmp/atto-public-tla2tools.jar
+          printf '%s  %s\n' 'ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f' '/tmp/atto-public-tla2tools.jar' | sha256sum --check
+          java -version
+      - name: TLC exhaustive safety check — valid guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -cp /tmp/atto-public-tla2tools.jar tlc2.TLC -workers 1 \
+            -config specs/merge-assurance-public-canary-v1.good.cfg \
+            specs/MergeAssurancePublicCanaryV1.tla | tee tlc-logs/good.log
+          grep -q 'Model checking completed. No error has been found.' tlc-logs/good.log
+      - name: TLC adversarial mutant checks — stale review, zero step, bypass
+        shell: bash
+        run: |
+          set -euo pipefail
+          for mode in stale-review zero-step bypass; do
+            echo "Expect invariant violation: $mode"
+            if timeout 120s java -cp /tmp/atto-public-tla2tools.jar tlc2.TLC -workers 1 \
+              -config "specs/merge-assurance-public-canary-v1.$mode.cfg" \
+              specs/MergeAssurancePublicCanaryV1.tla \
+              >"tlc-logs/$mode.log" 2>&1; then
+              echo "UNSAFE MUTANT ACCEPTED: $mode" >&2
+              exit 1
+            fi
+            grep -Eq 'Invariant NoUnsafeMerge is violated' "tlc-logs/$mode.log" || {
+              cat "tlc-logs/$mode.log"
+              echo "Unexpected model checker failure: $mode" >&2
+              exit 1
+            }
+            grep -m1 'Invariant NoUnsafeMerge is violated' "tlc-logs/$mode.log"
+          done
+      - name: Upload source-free TLC logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: source-free-tlc-canary-${{ github.event.pull_request.head.sha || github.sha }}
+          path: tlc-logs/
+          if-no-files-found: warn
+          retention-days: 14

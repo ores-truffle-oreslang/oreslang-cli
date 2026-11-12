@@ -2,7 +2,8 @@
 // Public, source-free, LOCAL cryptographic candidate verifier.
 // Neither a signature nor a JSON receipt authenticates GitHub/guest execution.
 import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto';
-import { openSync, fstatSync, readSync, closeSync, constants as fsConstants } from 'node:fs';
+import { openSync, fstatSync, lstatSync, readSync, closeSync, constants as fsConstants } from 'node:fs';
+import { join, parse, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const PAYLOAD_TYPE = 'application/vnd.atto.release-assurance.v1+json';
@@ -58,7 +59,16 @@ export function dssePAE(payloadType, payload) {
 }
 
 export function trustKeyId(publicPem) {
-  const key = createPublicKey(publicPem);
+  // The trust anchor must be a single PUBLIC KEY PEM block. createPublicKey()
+  // also accepts private-key material and silently derives its public half;
+  // do not accept or parse private signing secrets as a verifier trust input.
+  const pem = Buffer.isBuffer(publicPem)
+    ? new TextDecoder('utf-8', { fatal: true }).decode(publicPem)
+    : publicPem;
+  if (typeof pem !== 'string' ||
+      !/^-----BEGIN PUBLIC KEY-----\r?\n(?:[A-Za-z0-9+/]{1,64}={0,2}\r?\n)+-----END PUBLIC KEY-----\r?\n?$/.test(pem))
+    throw Error('trusted key must be a single public SPKI PEM block');
+  const key = createPublicKey(pem);
   if (key.asymmetricKeyType !== 'ed25519' || key.type !== 'public')
     throw Error('trusted public key must be Ed25519 SPKI');
   return { key, keyid: digest(key.export({ type: 'spki', format: 'der' })) };
@@ -139,6 +149,10 @@ function validateReceipt(m) {
         ![b.run_id,b.run_attempt,b.job_id,b.runner_id,b.executed_steps].every(pos) ||
         !sha256(b.toolchain_sha256) || !sha256(b.fixture_sha256) ||
         !sha256(b.output_sha256)) return 'BACKEND_GUEST_RECEIPT_UNVERIFIED';
+    // Synthetic receipts still require backend-specific provenance labels.
+    // A signed assertion from another repository must not impersonate a backend.
+    if (b.repository !== `ores-truffle-oreslang/oreslang-source.${b.backend}`)
+      return 'BACKEND_REPOSITORY_MISMATCH';
     if (canonicalFixture === undefined) canonicalFixture = b.fixture_sha256;
     if (canonicalOutput === undefined) canonicalOutput = b.output_sha256;
     if (b.fixture_sha256 !== canonicalFixture || b.output_sha256 !== canonicalOutput)
@@ -189,10 +203,29 @@ export function verifySignedCandidate({ envelopeBytes, trustedKeyPem, artifactBy
 
 // File descriptor is pinned before reading; block FIFOs, sockets, symlinks,
 // hardlinks, oversized objects, and mutations during read.
+// Refuse stable symlink redirects above a sensitive input, not only at its
+// leaf. This pathname walk is defense in depth; only a trusted private
+// directory can exclude a same-UID actor racing between checks.
+function assertSafeInputParents(path) {
+  if (path.split(/[\\/]/u).includes('..'))
+    throw Error('noncanonical input path parent');
+  const canonical = resolve(path);
+  const root = parse(canonical).root;
+  const components = canonical.slice(root.length).split(sep).filter(Boolean);
+  let parent = root;
+  for (const part of components.slice(0, -1)) {
+    parent = join(parent, part);
+    const entry = lstatSync(parent);
+    if (!entry.isDirectory() || entry.isSymbolicLink())
+      throw Error('symlinked or non-directory input parent');
+  }
+}
+
 export function readBoundedRegularFile(path, limit) {
   if (typeof path !== 'string' || !path || !Number.isSafeInteger(limit) || limit < 1 ||
       !Number.isInteger(fsConstants.O_NOFOLLOW) || !Number.isInteger(fsConstants.O_NONBLOCK))
     throw Error('unsafe file path/flags');
+  assertSafeInputParents(path);
   const fd = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
   try {
     const before = fstatSync(fd, { bigint: true });
@@ -212,6 +245,12 @@ export function readBoundedRegularFile(path, limit) {
         before.size !== after.size || BigInt(count) !== after.size ||
         before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs)
       throw Error('input mutated or exceeded bounded size');
+    // Catch a persistent parent/leaf swap during input admission. This is not
+    // equivalent to a race-free openat walk; the result is never authorization.
+    assertSafeInputParents(path);
+    const atPath = lstatSync(path, { bigint: true });
+    if (!atPath.isFile() || atPath.dev !== after.dev || atPath.ino !== after.ino)
+      throw Error('input pathname changed during bounded read');
     return Buffer.concat(parts, count);
   } finally { closeSync(fd); }
 }
