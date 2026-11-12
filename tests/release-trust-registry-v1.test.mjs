@@ -261,3 +261,27 @@ test('CLI is non-authorizing exit 3, denies tampering exit 1, blocks symlink/har
   const error=spawnSync(process.execPath,[command,'--help'],{encoding:'utf8'});
   assert.equal(error.status,2);
 });
+
+
+test('signed policy cannot contain a revocation outside the delegated key lifetime', () => {
+  for (const revoked of ['2025-12-31T23:59:59Z', '2028-01-01T00:00:00Z',
+    '2028-01-01T00:00:01Z', '2030-01-01T00:00:00Z']) {
+    const p=policy();p.keys[0].revoked_at=revoked;
+    const v=verifyPolicyBoundCandidate(make(p));
+    assert.equal(v.classification,'DENIED',revoked);
+    assert.equal(v.reason,'TRUST_KEY_RECORD_INVALID');
+  }
+  const p=policy();p.keys[0].revoked_at='2027-01-01T00:00:00Z';
+  const ok=make(p);assert.equal(verdict(ok),'TRUST_POLICY_BOUND_LOCAL_CANDIDATE');
+  ok.now='2027-01-01T00:00:00Z';
+  assert.equal(verifyPolicyBoundCandidate(ok).reason,'SIGNER_KEY_REVOKED');
+});
+
+test('non-authorizing local receipt binds tested tree and exact candidate envelope', () => {
+  const a=make(),v=verifyPolicyBoundCandidate(a);
+  assert.equal(v.classification,'TRUST_POLICY_BOUND_LOCAL_CANDIDATE');
+  assert.equal(v.tree_sha, tree);
+  assert.equal(v.candidate_envelope_sha256,hash(a.candidateEnvelopeBytes));
+  assert.equal(v.release_authorized,false);
+  assert.equal(v.authenticated_github,false);
+});

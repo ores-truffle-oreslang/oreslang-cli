@@ -102,7 +102,10 @@ function validatePolicy(policy, expected, now, rootId) {
         strictTime(item.not_after) === null ||
         item.not_before >= item.not_after ||
         item.not_before < policy.not_before || item.not_after > policy.not_after ||
-        (item.revoked_at !== null && strictTime(item.revoked_at) === null))
+        (item.revoked_at !== null && (
+          strictTime(item.revoked_at) === null ||
+          item.revoked_at < item.not_before ||
+          item.revoked_at >= item.not_after)))
       return 'TRUST_KEY_RECORD_INVALID';
     let id;
     try { id = trustKeyId(item.spki_pem).keyid; }
@@ -171,6 +174,7 @@ export function verifyPolicyBoundCandidate({
       authenticated_github: false, root_keyid: rootId, signer_keyid: signer.keyid,
       policy_id: policy.policy_id, policy_sequence: policy.sequence,
       repository: result.repository, head_sha: result.head_sha,
+      tree_sha: result.tree_sha, candidate_envelope_sha256: expected.envelope_sha256,
       artifact_sha256: result.artifact_sha256,
       reason: 'Root signature, candidate signature, local artifact bytes and external pins match; live GitHub, key-clock integrity and guest execution NOT authenticated'
     };
