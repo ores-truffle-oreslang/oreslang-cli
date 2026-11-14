@@ -261,3 +261,121 @@ test('CLI is non-authorizing exit 3, denies tampering exit 1, blocks symlink/har
   const error=spawnSync(process.execPath,[command,'--help'],{encoding:'utf8'});
   assert.equal(error.status,2);
 });
+
+
+// boundary policy tests: executable negative controls for stacked release assurance.
+test('trust-policy validity is start-inclusive, end-exclusive and revocation is immediate', () => {
+  const atStart=make();
+  atStart.now='2026-01-01T00:00:00Z';
+  assert.equal(verdict(atStart),'TRUST_POLICY_BOUND_LOCAL_CANDIDATE');
+  const before=make();
+  before.now='2025-12-31T23:59:59Z';
+  denied(before);
+  const last=make();
+  last.now='2027-12-31T23:59:59Z';
+  assert.equal(verdict(last),'TRUST_POLICY_BOUND_LOCAL_CANDIDATE');
+  const signerExpires=make();
+  signerExpires.now='2028-01-01T00:00:00Z';
+  denied(signerExpires);
+  const policyExpires=make();
+  policyExpires.now='2029-01-01T00:00:00Z';
+  denied(policyExpires);
+  const revoked=policy();
+  revoked.keys[0].revoked_at='2026-11-07T00:01:01Z';
+  const justBefore=make(revoked);
+  assert.equal(verdict(justBefore),'TRUST_POLICY_BOUND_LOCAL_CANDIDATE');
+  const atRevocation=make(revoked);
+  atRevocation.now='2026-11-07T00:01:01Z';
+  denied(atRevocation);
+});
+
+test('review history fails closed on author approval, stale code owner and COMMENTED after veto', () => {
+  const mutations=[
+    m => {m.governance.author='IndependentOwner'},
+    m => {m.reviews[0].reviewer='BuildAuthor'},
+    m => {m.reviews[0].reviewer='UnlistedReviewer'},
+    m => {m.reviews[0].commit_id='0'.repeat(40)},
+    m => {m.reviews[0].state='COMMENTED'},
+    m => {m.reviews.push({...m.reviews[0], state:'CHANGES_REQUESTED',
+      submitted_at:'2026-11-06T20:41:00Z'})},
+    m => {m.reviews.push({...m.reviews[0], state:'CHANGES_REQUESTED',
+      submitted_at:'2026-11-06T20:41:00Z'});
+      m.reviews.push({...m.reviews[0], state:'COMMENTED',
+        submitted_at:'2026-11-06T20:42:00Z'})},
+    m => {m.reviews.push({...m.reviews[0], state:'DISMISSED',
+      submitted_at:'2026-11-06T20:41:00Z'})},
+    m => {m.reviews.push({...m.reviews[0], state:'APPROVED',
+      submitted_at:'2026-11-06T20:40:00Z'})}
+  ];
+  for (const [i, mutate] of mutations.entries()) {
+    const m=manifest();
+    mutate(m);
+    const result=verifyPolicyBoundCandidate(make(policy(),m));
+    assert.equal(result.classification,'DENIED','review mutation '+i);
+    assert.equal(result.release_authorized,false);
+    assert.equal(result.authenticated_github,false);
+  }
+  const recovered=manifest();
+  recovered.reviews.push({...recovered.reviews[0],state:'CHANGES_REQUESTED',
+    submitted_at:'2026-11-06T20:41:00Z'});
+  recovered.reviews.push({...recovered.reviews[0],state:'APPROVED',
+    submitted_at:'2026-11-06T20:42:00Z'});
+  assert.equal(verdict(make(policy(),recovered)),'TRUST_POLICY_BOUND_LOCAL_CANDIDATE');
+});
+
+test('all five backend receipts reject host-only labels, zero-step runners and source mixups', () => {
+  const names=['java','llvm','net','wasm','forge'];
+  let checked=0;
+  for(let i=0;i<names.length;i++){
+    const other=names[(i+1)%names.length];
+    const mutations=[
+      b => {b.classification='HOST_ONLY'},
+      b => {b.classification='NOT_EXECUTED'},
+      b => {b.executed_steps=0},
+      b => {b.run_id=0},
+      b => {b.run_attempt=0},
+      b => {b.job_id=0},
+      b => {b.runner_id=0},
+      b => {b.fixture_sha256='1'.repeat(64)},
+      b => {b.output_sha256='2'.repeat(64)},
+      b => {b.repository='ores-truffle-oreslang/oreslang-source.'+other},
+      b => {b.repository='ores-truffle-oreslang/unrelated'}
+    ];
+    for(const [j, mutate] of mutations.entries()){
+      const m=manifest();
+      mutate(m.backends[i]);
+      const result=verifyPolicyBoundCandidate(make(policy(),m));
+      assert.equal(result.classification,'DENIED',names[i]+' backend mutation '+j);
+      assert.equal(result.release_authorized,false);
+      checked++;
+    }
+  }
+  assert.equal(checked,55);
+});
+
+test('unassigned or fictional workflow test steps never become a signed candidate', () => {
+  const mutations=[
+    w=>{w.steps=[]},
+    w=>{w.steps=null},
+    w=>{w.runner_id=null},
+    w=>{w.runner_id=0},
+    w=>{w.run_attempt=0},
+    w=>{w.steps[0].number=w.steps[1].number},
+    w=>{w.steps[0].name='Generic setup'},
+    w=>{w.steps[1].name='Publish release'},
+    w=>{w.steps[1].conclusion='skipped'},
+    w=>{w.steps[1].status='queued'},
+    w=>{w.checkout_step_number=w.test_step_number},
+    w=>{w.job_name='untrusted-ci'},
+    w=>{w.head_sha='f'.repeat(40)},
+    w=>{w.tree_sha='f'.repeat(40)}
+  ];
+  for(const [i,mutate] of mutations.entries()){
+    const m=manifest();
+    mutate(m.workflow);
+    const result=verifyPolicyBoundCandidate(make(policy(),m));
+    assert.equal(result.classification,'DENIED','workflow mutation '+i);
+    assert.equal(result.release_authorized,false);
+    assert.equal(result.compiler_guest_parity_proven,false);
+  }
+});
