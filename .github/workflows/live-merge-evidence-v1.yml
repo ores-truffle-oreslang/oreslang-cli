@@ -1,0 +1,51 @@
+name: Live merge evidence v1 (source-free non-authorizing)
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-evidence-model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Verify original exact HEAD, clean checkout and committed file identities
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          while IFS= read -r -d '' item; do
+            test "${item:0:1}" = H
+          done < <(git ls-files -z -v)
+          for path in \
+            tools/live-merge-evidence-v1/collect.mjs \
+            tools/live-merge-evidence-v1/verify.mjs \
+            tools/live-merge-evidence-v1/attest.mjs \
+            tests/live-merge-evidence-v1.test.mjs \
+            docs/LIVE_MERGE_EVIDENCE_V1.md \
+            .github/workflows/live-merge-evidence-v1.yml; do
+            test -f "$path"
+            test "$(git hash-object "$path")" = "$(git rev-parse "HEAD:$path")"
+          done
+          echo "EXACT_SOURCE_HEAD=$EXPECTED_HEAD"
+          echo "EXACT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Execute adversarial live readback, provenance and Ed25519 DSSE verification
+        run: node --test tests/live-merge-evidence-v1.test.mjs
+      - name: Confirm readonly collection operation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module -e "import { readFileSync } from 'node:fs'; const source=readFileSync('tools/live-merge-evidence-v1/collect.mjs','utf8'); if (!source.includes(\"method:'GET'\")) process.exit(1);"
